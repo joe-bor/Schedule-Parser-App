@@ -1,0 +1,41 @@
+# Node dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Coverage and build output
+coverage/
+build/
+dist/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Cache and temporary files
+.cache/
+.parcel-cache/
+.nyc_output/
+.eslintcache
+.stylelintcache
+
+# System files
+.DS_Store
+
+# VSCode
+.vscode/
+
+# Optional
+*.tgz
+
+# TypeScript output
+dist/
+*.tsbuildinfo
