@@ -1,16 +1,20 @@
 import express from "express";
 import type { Application, Request, Response } from "express";
+import router from "./routes/index.js";
 
 const createApp = (): Application => {
   const app = express();
 
+  // Body parser middleware
+  app.use(express.json());
+
+  // Root route
   app.get("/", (req: Request, res: Response) => {
     res.send("Scheduler App is running!");
   });
 
-  app.get("/health", (req: Request, res: Response) => {
-    res.status(200).json({ status: "GOOD" });
-  });
+  // Mount API routes under /api prefix
+  app.use("/api", router);
 
   return app;
 };
