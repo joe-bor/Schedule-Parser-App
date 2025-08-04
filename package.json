@@ -18,7 +18,9 @@
   "license": "ISC",
   "dependencies": {
     "express": "^5.1.0",
+    "express-rate-limit": "^8.0.1",
     "googleapis": "^154.1.0",
+    "helmet": "^8.1.0",
     "node-telegram-bot-api": "^0.66.0",
     "tesseract.js": "^6.0.1",
     "zod": "^4.0.14"

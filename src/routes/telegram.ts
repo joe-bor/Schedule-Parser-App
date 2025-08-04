@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { webhookLimiter } from "../middleware/rateLimiter.js";
+import { validateWebhook } from "../middleware/validateWebhook.js";
 
 const router = Router();
 
@@ -8,7 +10,7 @@ const router = Router();
  * @param {object} req.body - Update object from Telegram
  * @returns {object} 200 - Success response
  */
-router.post("/webhook", (req, res) => {
+router.post("/webhook", webhookLimiter, validateWebhook, (req, res) => {
   // TODO: Implement webhook handler
   // 1. Validate incoming update
   // 2. Process photo messages
