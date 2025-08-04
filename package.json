@@ -10,6 +10,7 @@
     "test:coverage": "jest --coverage",
     "build": "tsc",
     "start": "node dist/server.js",
+    "setup-env": "[ ! -f .env ] && cp .env.template .env || echo '.env already exists'",
     "dev": "nodemon --watch 'src/**/*.ts' --exec tsx src/server.ts"
   },
   "keywords": [],
@@ -19,7 +20,8 @@
     "express": "^5.1.0",
     "googleapis": "^154.1.0",
     "node-telegram-bot-api": "^0.66.0",
-    "tesseract.js": "^6.0.1"
+    "tesseract.js": "^6.0.1",
+    "zod": "^4.0.14"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
