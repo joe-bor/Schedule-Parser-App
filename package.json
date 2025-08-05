@@ -2,30 +2,43 @@
   "name": "scheduler-app",
   "version": "1.0.0",
   "description": "",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "pretest": "tsc --noEmit",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "nodemon --watch 'src/**/*.ts' --exec tsx src/index.ts"
+    "start": "node dist/server.js",
+    "setup-env": "[ ! -f .env ] && cp .env.template .env || echo '.env already exists'",
+    "dev": "nodemon --watch 'src/**/*.ts' --exec tsx src/server.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "express": "^5.1.0",
+    "express-rate-limit": "^8.0.1",
     "googleapis": "^154.1.0",
+    "helmet": "^8.1.0",
     "node-telegram-bot-api": "^0.66.0",
-    "tesseract.js": "^6.0.1"
+    "tesseract.js": "^6.0.1",
+    "zod": "^4.0.14"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
+    "@types/jest": "^30.0.0",
     "@types/node": "^24.1.0",
     "@types/node-telegram-bot-api": "^0.64.9",
+    "@types/supertest": "^6.0.3",
     "biome": "^0.3.3",
     "dotenv": "^17.2.1",
+    "jest": "^30.0.5",
     "nodemon": "^3.1.10",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.1",
+    "ts-node": "^10.9.2",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2"
   }
