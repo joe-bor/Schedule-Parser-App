@@ -7,14 +7,14 @@ export const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
 
-  // Telegram
-  TELEGRAM_BOT_TOKEN: z.string().min(1),
-  TELEGRAM_WEBHOOK_URL: z.string().url(),
+  // Telegram (optional for development)
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_WEBHOOK_URL: z.string().optional(), // Allow localhost for dev, but warn
 
-  // Google Calendar
-  GOOGLE_CLIENT_ID: z.string().min(1),
-  GOOGLE_CLIENT_SECRET: z.string().min(1),
-  GOOGLE_REDIRECT_URI: z.string().url(),
+  // Google Calendar (optional for development)
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
