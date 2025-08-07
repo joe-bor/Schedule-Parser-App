@@ -12,7 +12,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "setup-env": "[ ! -f .env ] && cp .env.template .env || echo '.env already exists'",
-    "dev": "nodemon --watch 'src/**/*.ts' --exec tsx src/server.ts"
+    "dev": "nodemon --watch 'src/**/*.ts' --exec tsx src/server.ts",
+    "tunnel": "npx localtunnel --port 3000 --subdomain scheduler-bot-test",
+    "tunnel:bg": "npx localtunnel --port 3000 --subdomain scheduler-bot-test > tunnel.log 2>&1 & echo $! > tunnel.pid && echo 'Tunnel started in background. Check tunnel.log for URL.'"
   },
   "keywords": [],
   "author": "",
