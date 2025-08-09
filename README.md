@@ -101,7 +101,7 @@ GOOGLE_REDIRECT_URI=your_redirect_uri
 ### Health Check
 
 ```
-GET /health
+GET /api/health
 ```
 
 Returns server status and health information.
@@ -109,7 +109,24 @@ Returns server status and health information.
 ### Telegram Webhook
 
 ```
-POST /webhook/telegram
+POST /api/telegram/webhook
 ```
 
 Receives Telegram bot updates (photos, messages).
+
+### Telegram Setup
+
+```
+POST /api/telegram/setup
+```
+
+Registers webhook URL with Telegram Bot API.
+
+### Calendar Routes
+
+```
+GET /api/calendar/oauth/callback
+POST /api/calendar/events
+```
+
+OAuth callback and calendar event management (implementation in progress).
