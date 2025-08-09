@@ -1,12 +1,12 @@
 import type { Request, NextFunction } from "express";
 import { validateWebhook } from "../../src/middleware/validateWebhook.js";
 import { jest } from '@jest/globals';
-import { createMockResponse, type MockResponse } from "../types/test-utils.js";
+import { createMockResponse } from "../types/test-utils.js";
 import type { TelegramUpdate } from "../../src/types/telegram.js";
 
 describe("validateWebhook middleware", () => {
   let mockRequest: Partial<Request>;
-  let mockResponse: MockResponse;
+  let mockResponse: ReturnType<typeof createMockResponse>;
   let mockNext: NextFunction;
 
   beforeEach(() => {
