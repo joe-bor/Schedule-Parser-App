@@ -36,6 +36,11 @@ pids/
 # Optional
 *.tgz
 
+# Tesseract training data (auto-downloaded)
+*.traineddata
+
 # TypeScript output
 dist/
 *.tsbuildinfo
+.claude/
+OCR_IMPLEMENTATION_PLAN.md
