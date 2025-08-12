@@ -229,7 +229,7 @@ router.post("/setup", async (_req, res) => {
       : `https://${env.TELEGRAM_WEBHOOK_URL}`;
     
     const response = await fetch(
-      `https://api.telegram.org/bot/${env.TELEGRAM_BOT_TOKEN}/setWebhook`,
+      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
