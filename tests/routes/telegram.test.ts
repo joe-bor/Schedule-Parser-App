@@ -17,6 +17,9 @@ describe("Telegram Routes", () => {
   let mockFetch: jest.MockedFunction<typeof fetch>;
 
   beforeEach(() => {
+    // Mock environment variables
+    process.env.TELEGRAM_BOT_TOKEN = 'test_bot_token';
+    
     app = createApp();
     
     // Mock fetch for each test
