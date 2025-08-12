@@ -24,6 +24,10 @@ export function validateEnv(): Env {
     return envSchema.parse(process.env);
   } catch (error) {
     console.error("❌ Invalid environment variables:", error);
+    // Don't exit in test environment
+    if (process.env.NODE_ENV === 'test') {
+      throw error;
+    }
     process.exit(1);
   }
 }

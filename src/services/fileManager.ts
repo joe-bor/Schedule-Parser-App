@@ -156,8 +156,8 @@ export class TelegramFileManager {
       return 'image/gif';
     }
     
-    // Default to JPEG if we can't detect (common for Telegram photos)
-    return 'image/jpeg';
+    // Return unknown for unrecognized formats instead of defaulting to JPEG
+    return 'application/octet-stream';
   }
 
   private createProcessingError(code: ProcessingError['code'], message: string, originalError?: Error): ProcessingError {

@@ -8,9 +8,23 @@ import type { ProcessingError } from "../types/ocr.js";
 
 const router = Router();
 
-// Initialize OCR services
-const fileManager = new TelegramFileManager();
-const ocrProcessor = new OCRProcessor();
+// Lazy-load OCR services to avoid environment validation issues in tests
+let fileManager: TelegramFileManager | undefined;
+let ocrProcessor: OCRProcessor | undefined;
+
+function getFileManager(): TelegramFileManager {
+  if (!fileManager) {
+    fileManager = new TelegramFileManager();
+  }
+  return fileManager;
+}
+
+function getOcrProcessor(): OCRProcessor {
+  if (!ocrProcessor) {
+    ocrProcessor = new OCRProcessor();
+  }
+  return ocrProcessor;
+}
 
 /**
  * Process photo for OCR and return extracted text
@@ -27,11 +41,11 @@ async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void>
     console.log(`🔍 Processing photo: ${largestPhoto.file_id} (${largestPhoto.width}x${largestPhoto.height})`);
     
     // Download the photo
-    const downloadResult = await fileManager.downloadPhoto(largestPhoto.file_id);
+    const downloadResult = await getFileManager().downloadPhoto(largestPhoto.file_id);
     console.log(`✅ Photo downloaded: ${downloadResult.buffer.length} bytes`);
     
     // Extract text using OCR
-    const ocrResult = await ocrProcessor.extractText(downloadResult.buffer);
+    const ocrResult = await getOcrProcessor().extractText(downloadResult.buffer);
     
     // Send results to user
     if (ocrResult.text.trim().length > 0) {
@@ -253,12 +267,16 @@ router.post("/setup", async (_req, res) => {
 // Graceful shutdown handler for OCR worker
 process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM received, cleaning up OCR processor...');
-  await OCRProcessor.cleanup(ocrProcessor);
+  if (ocrProcessor) {
+    await OCRProcessor.cleanup(ocrProcessor);
+  }
 });
 
 process.on('SIGINT', async () => {
   console.log('🛑 SIGINT received, cleaning up OCR processor...');
-  await OCRProcessor.cleanup(ocrProcessor);
+  if (ocrProcessor) {
+    await OCRProcessor.cleanup(ocrProcessor);
+  }
 });
 
 export default router;

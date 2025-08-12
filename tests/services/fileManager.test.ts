@@ -120,15 +120,18 @@ describe('TelegramFileManager', () => {
     ]);
 
     beforeEach(() => {
-      // Mock getFile API call
+      // Reset mocks for each test
+      mockFetch.mockReset();
+    });
+
+    it('should successfully download and validate photo', async () => {
+      // Mock getFile API call (first fetch)
       mockFetch.mockResolvedValueOnce(createMockFetchResponse({
         ok: true,
         result: mockFileInfo
       }));
-    });
-
-    it('should successfully download and validate photo', async () => {
-      // Mock file download
+      
+      // Mock file download (second fetch)
       mockFetch.mockResolvedValueOnce({
         ok: true,
         arrayBuffer: () => Promise.resolve(mockImageBuffer.buffer)
@@ -176,8 +179,8 @@ describe('TelegramFileManager', () => {
     });
 
     it('should reject unsupported file types', async () => {
-      // Mock GIF file (not in allowed types)
-      const gifBuffer = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]); // GIF header
+      // Mock text file (not in allowed types)
+      const textBuffer = Buffer.from('This is not an image file'); // Text content
       
       mockFetch.mockReset();
       // First call - getFileInfo
@@ -188,12 +191,12 @@ describe('TelegramFileManager', () => {
       // Second call - downloadFileBuffer
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        arrayBuffer: () => Promise.resolve(gifBuffer.buffer)
+        arrayBuffer: () => Promise.resolve(textBuffer.buffer)
       } as Response);
 
       const customOptions: FileValidationOptions = {
         maxSizeBytes: 10 * 1024 * 1024,
-        allowedMimeTypes: ['image/jpeg', 'image/png'], // GIF not allowed
+        allowedMimeTypes: ['image/jpeg', 'image/png'], // Text files not allowed
         minWidth: 100,
         minHeight: 100
       };
@@ -293,7 +296,7 @@ describe('TelegramFileManager', () => {
       expect(result.mimeType).toBe('image/webp');
     });
 
-    it('should default to JPEG for unknown formats', async () => {
+    it('should return octet-stream for unknown formats', async () => {
       const unknownBuffer = Buffer.from([0x00, 0x01, 0x02, 0x03]);
       
       // Setup mocks for successful download
@@ -308,7 +311,7 @@ describe('TelegramFileManager', () => {
         } as Response);
 
       const result = await fileManager.downloadPhoto('test_file_id');
-      expect(result.mimeType).toBe('image/jpeg');
+      expect(result.mimeType).toBe('application/octet-stream');
     });
   });
 });
