@@ -2,8 +2,80 @@ import { Router } from "express";
 import { webhookLimiter } from "../middleware/rateLimiter.js";
 import { validateWebhook } from "../middleware/validateWebhook.js";
 import { validateEnv } from "../config/env.js";
+import { TelegramFileManager } from "../services/fileManager.js";
+import { OCRProcessor } from "../services/ocrProcessor.js";
+import type { ProcessingError } from "../types/ocr.js";
 
 const router = Router();
+
+// Initialize OCR services
+const fileManager = new TelegramFileManager();
+const ocrProcessor = new OCRProcessor();
+
+/**
+ * Process photo for OCR and return extracted text
+ */
+async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void> {
+  try {
+    await sendMessage(chatId, "📸 I received your photo! Starting OCR processing...");
+    
+    // Get the largest photo size for better OCR results
+    const largestPhoto = photoSizes.reduce((largest, current) => 
+      current.file_size > largest.file_size ? current : largest
+    );
+    
+    console.log(`🔍 Processing photo: ${largestPhoto.file_id} (${largestPhoto.width}x${largestPhoto.height})`);
+    
+    // Download the photo
+    const downloadResult = await fileManager.downloadPhoto(largestPhoto.file_id);
+    console.log(`✅ Photo downloaded: ${downloadResult.buffer.length} bytes`);
+    
+    // Extract text using OCR
+    const ocrResult = await ocrProcessor.extractText(downloadResult.buffer);
+    
+    // Send results to user
+    if (ocrResult.text.trim().length > 0) {
+      const message = `✅ <b>OCR Processing Complete!</b>\n\n` +
+                     `📝 <b>Extracted Text:</b>\n<code>${ocrResult.text}</code>\n\n` +
+                     `🎯 <b>Confidence:</b> ${(ocrResult.confidence * 100).toFixed(1)}%\n` +
+                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms\n\n` +
+                     `🔄 <i>Schedule parsing and calendar integration coming soon!</i>`;
+      
+      await sendMessage(chatId, message);
+    } else {
+      await sendMessage(chatId, "❌ No text could be extracted from the image. Please try with a clearer photo.");
+    }
+    
+  } catch (error) {
+    console.error("❌ OCR processing failed:", error);
+    
+    let errorMessage = "❌ Failed to process your photo. ";
+    
+    if (error && typeof error === 'object' && 'code' in error) {
+      const processingError = error as ProcessingError;
+      switch (processingError.code) {
+        case 'FILE_TOO_LARGE':
+          errorMessage += "The image is too large. Please send a smaller image (max 10MB).";
+          break;
+        case 'INVALID_FILE':
+          errorMessage += "Invalid image format. Please send a JPEG, PNG, or WebP image.";
+          break;
+        case 'OCR_FAILED':
+          errorMessage += "Text extraction failed. Please try with a clearer, higher-contrast image.";
+          break;
+        case 'NETWORK_ERROR':
+          errorMessage += "Network error occurred. Please try again.";
+          break;
+        default:
+          errorMessage += "Please try again or contact support if the problem persists.";
+      }
+    } else {
+      errorMessage += "Please try again or contact support if the problem persists.";
+    }
+    
+    await sendMessage(chatId, errorMessage);
+  }
+}
 
 /**
  * Send a message to a Telegram chat
@@ -17,8 +89,11 @@ async function sendMessage(chatId: number, text: string): Promise<void> {
       return;
     }
     
-    const response = await fetch(
-      `https://api.telegram.org/bot/${env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+    const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+    console.log(`🔍 Sending message to URL: ${url}`);
+    console.log(`🔍 Chat ID: ${chatId}, Text: "${text}"`);
+    
+    const response = await fetch(url,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -30,7 +105,9 @@ async function sendMessage(chatId: number, text: string): Promise<void> {
       }
     );
     
+    console.log(`🔍 Response status: ${response.status} ${response.statusText}`);
     const result = await response.json();
+    console.log(`🔍 Response body:`, result);
     
     if (result.ok) {
       console.log(`✅ Message sent to chat ${chatId}`);
@@ -94,7 +171,10 @@ router.post("/webhook", webhookLimiter, validateWebhook, async (req, res) => {
   }
   
   if (update.message?.photo) {
-    await sendMessage(update.message.chat.id, "📸 I received your photo! OCR processing will be implemented soon.");
+    // Process photo with OCR (run asynchronously to avoid blocking webhook response)
+    processPhotoOCR(update.message.photo, update.message.chat.id).catch(error => {
+      console.error("❌ Async OCR processing failed:", error);
+    });
   }
   
   // Always respond with 200 to acknowledge receipt
@@ -168,6 +248,17 @@ router.post("/setup", async (_req, res) => {
       error: "Internal server error during webhook setup" 
     });
   }
+});
+
+// Graceful shutdown handler for OCR worker
+process.on('SIGTERM', async () => {
+  console.log('🛑 SIGTERM received, cleaning up OCR processor...');
+  await OCRProcessor.cleanup(ocrProcessor);
+});
+
+process.on('SIGINT', async () => {
+  console.log('🛑 SIGINT received, cleaning up OCR processor...');
+  await OCRProcessor.cleanup(ocrProcessor);
 });
 
 export default router;
