@@ -7,8 +7,8 @@ export const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
 
-  // Telegram (optional for development)
-  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  // Telegram (required for bot functionality)
+  TELEGRAM_BOT_TOKEN: z.string(),
   TELEGRAM_WEBHOOK_URL: z.string().optional(), // Allow localhost for dev, but warn
 
   // Google Calendar (optional for development)
