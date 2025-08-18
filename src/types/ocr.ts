@@ -39,7 +39,7 @@ export const DEFAULT_FILE_VALIDATION: FileValidationOptions = {
 
 export const DEFAULT_OCR_CONFIG = {
   lang: 'eng',
-  minConfidence: 0.3,
+  minConfidence: 0.5, // Raised threshold to trigger more fallback attempts
   timeoutMs: 30000
 } as const;
 
