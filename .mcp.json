@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tesseract-js": {
+      "type": "http",
+      "url": "https://gitmcp.io/naptha/tesseract.js"
+    }
+  }
+}

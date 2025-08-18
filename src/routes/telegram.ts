@@ -27,6 +27,72 @@ function getOcrProcessor(): OCRProcessor {
 }
 
 /**
+ * Process document for OCR and return extracted text
+ */
+async function processDocumentOCR(document: any, chatId: number): Promise<void> {
+  try {
+    // Check if it's an image document
+    if (!document.mime_type?.startsWith('image/')) {
+      await sendMessage(chatId, "❌ Please send an image file (JPEG, PNG, WebP) for OCR processing.");
+      return;
+    }
+
+    await sendMessage(chatId, "📄 I received your document! Starting OCR processing...");
+    
+    console.log(`🔍 Processing document: ${document.file_id} (${document.file_name}) - ${document.file_size} bytes`);
+    
+    // Download the document
+    const downloadResult = await getFileManager().downloadPhoto(document.file_id);
+    console.log(`✅ Document downloaded: ${downloadResult.buffer.length} bytes`);
+    
+    // Extract text using OCR
+    const ocrResult = await getOcrProcessor().extractText(downloadResult.buffer);
+    
+    // Send results to user
+    if (ocrResult.text.trim().length > 0) {
+      const message = `✅ <b>OCR Processing Complete!</b> 📄\n\n` +
+                     `📝 <b>Extracted Text:</b>\n<code>${ocrResult.text}</code>\n\n` +
+                     `🎯 <b>Confidence:</b> ${(ocrResult.confidence * 100).toFixed(1)}%\n` +
+                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms\n\n` +
+                     `🔄 <i>Schedule parsing and calendar integration coming soon!</i>`;
+      
+      await sendMessage(chatId, message);
+    } else {
+      await sendMessage(chatId, "❌ No text could be extracted from the document. Please try with a clearer image file.");
+    }
+    
+  } catch (error) {
+    console.error("❌ OCR processing failed:", error);
+    
+    let errorMessage = "❌ Failed to process your document. ";
+    
+    if (error && typeof error === 'object' && 'code' in error) {
+      const processingError = error as ProcessingError;
+      switch (processingError.code) {
+        case 'FILE_TOO_LARGE':
+          errorMessage += "The document is too large. Please send a smaller file (max 10MB).";
+          break;
+        case 'INVALID_FILE':
+          errorMessage += "Invalid image format. Please send a JPEG, PNG, or WebP file.";
+          break;
+        case 'OCR_FAILED':
+          errorMessage += "Text extraction failed. Please try with a clearer, higher-contrast image file.";
+          break;
+        case 'NETWORK_ERROR':
+          errorMessage += "Network error occurred. Please try again.";
+          break;
+        default:
+          errorMessage += "Please try again or contact support if the problem persists.";
+      }
+    } else {
+      errorMessage += "Please try again or contact support if the problem persists.";
+    }
+    
+    await sendMessage(chatId, errorMessage);
+  }
+}
+
+/**
  * Process photo for OCR and return extracted text
  */
 async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void> {
@@ -187,7 +253,14 @@ router.post("/webhook", webhookLimiter, validateWebhook, async (req, res) => {
   if (update.message?.photo) {
     // Process photo with OCR (run asynchronously to avoid blocking webhook response)
     processPhotoOCR(update.message.photo, update.message.chat.id).catch(error => {
-      console.error("❌ Async OCR processing failed:", error);
+      console.error("❌ Async photo OCR processing failed:", error);
+    });
+  }
+
+  if (update.message?.document) {
+    // Process document with OCR (run asynchronously to avoid blocking webhook response)
+    processDocumentOCR(update.message.document, update.message.chat.id).catch(error => {
+      console.error("❌ Async document OCR processing failed:", error);
     });
   }
   

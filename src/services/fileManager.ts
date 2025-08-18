@@ -119,12 +119,27 @@ export class TelegramFileManager {
     const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${filePath}`;
     
     try {
-      const response = await fetch(fileUrl);
+      console.log(`📥 Downloading file from: ${fileUrl}`);
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
+      const response = await fetch(fileUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'TelegramBot/1.0'
+        }
+      });
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
       }
 
+      console.log(`📦 File download response: ${response.status} (${response.headers.get('content-length')} bytes)`);
+      
       const arrayBuffer = await response.arrayBuffer();
       return Buffer.from(arrayBuffer);
     } catch (error) {
