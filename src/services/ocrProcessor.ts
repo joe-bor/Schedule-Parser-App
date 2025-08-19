@@ -3,20 +3,65 @@ import type { Worker } from 'tesseract.js';
 import type { OCRResult, ProcessingError, OCRConfig } from "../types/ocr.js";
 import { DEFAULT_OCR_CONFIG } from "../types/ocr.js";
 import { ImagePreprocessor, type ImagePreprocessingOptions, DEFAULT_PREPROCESSING } from "../utils/imageProcessor.js";
+import { AdvancedImageProcessor } from "../utils/advancedImageProcessor.js";
+import type { OpenCVPreprocessingOptions } from "../types/opencv.js";
+import { DEFAULT_OPENCV_PREPROCESSING } from "../types/opencv.js";
+import { GoogleVisionProcessor } from "./googleVisionProcessor.js";
+import type { GoogleVisionConfig } from "../types/googleVision.js";
+import { validateEnv } from "../config/env.js";
 
 export class OCRProcessor {
   private worker: Worker | null = null;
   private imageProcessor: ImagePreprocessor;
+  private advancedProcessor: AdvancedImageProcessor;
+  private googleVisionProcessor: GoogleVisionProcessor | null = null;
   private isInitialized = false;
 
   constructor() {
     this.imageProcessor = new ImagePreprocessor();
+    this.advancedProcessor = new AdvancedImageProcessor();
+    this.initializeGoogleVision();
+  }
+
+  /**
+   * Initialize Google Vision processor with environment configuration
+   */
+  private initializeGoogleVision(): void {
+    try {
+      const env = validateEnv();
+      
+      if (env.GOOGLE_VISION_ENABLED) {
+        const googleVisionConfig: GoogleVisionConfig = {
+          projectId: env.GOOGLE_CLOUD_PROJECT_ID,
+          keyFilename: env.GOOGLE_APPLICATION_CREDENTIALS,
+          enabled: env.GOOGLE_VISION_ENABLED,
+          maxRetries: 2,
+          timeoutMs: 15000,
+          useDocumentTextDetection: env.GOOGLE_VISION_USE_DOCUMENT_DETECTION
+        };
+
+        console.log('🔧 Google Vision config:', { 
+          enabled: googleVisionConfig.enabled,
+          useDocumentTextDetection: googleVisionConfig.useDocumentTextDetection,
+          envValue: env.GOOGLE_VISION_USE_DOCUMENT_DETECTION
+        });
+
+        this.googleVisionProcessor = new GoogleVisionProcessor(googleVisionConfig);
+        console.log('🔧 Google Vision processor initialized with document detection');
+      } else {
+        console.log('ℹ️ Google Vision disabled in configuration');
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to initialize Google Vision processor:', error);
+      this.googleVisionProcessor = null;
+    }
   }
 
   async extractText(
     imageBuffer: Buffer,
     config: OCRConfig = DEFAULT_OCR_CONFIG,
-    preprocessingOptions: ImagePreprocessingOptions = DEFAULT_PREPROCESSING
+    preprocessingOptions: ImagePreprocessingOptions = DEFAULT_PREPROCESSING,
+    openCVOptions: OpenCVPreprocessingOptions = DEFAULT_OPENCV_PREPROCESSING
   ): Promise<OCRResult> {
     const startTime = Date.now();
     
@@ -24,23 +69,120 @@ export class OCRProcessor {
       // Initialize worker if not already done
       await this.initializeWorker(config);
       
-      // Preprocess image for better OCR results
-      console.log('🔧 Preprocessing image for OCR...');
-      const processedBuffer = await this.imageProcessor.preprocessImage(imageBuffer, preprocessingOptions);
+      // Choose preprocessing method based on config
+      let processedBuffer: Buffer;
+      let preprocessingMethod = 'sharp';
+      
+      if (config.useAdvancedPreprocessing) {
+        try {
+          console.log('🔧 Using advanced OpenCV preprocessing...');
+          const isOpenCVReady = await this.advancedProcessor.isOpenCVReady();
+          
+          if (isOpenCVReady) {
+            processedBuffer = await this.advancedProcessor.preprocessImage(imageBuffer, openCVOptions);
+            preprocessingMethod = 'opencv';
+            console.log('✅ OpenCV preprocessing completed successfully');
+          } else {
+            console.warn('⚠️ OpenCV not ready, falling back to Sharp.js');
+            processedBuffer = await this.imageProcessor.preprocessImage(imageBuffer, preprocessingOptions);
+          }
+        } catch (error) {
+          console.warn('⚠️ OpenCV preprocessing failed, falling back to Sharp.js:', error);
+          processedBuffer = await this.imageProcessor.preprocessImage(imageBuffer, preprocessingOptions);
+        }
+      } else {
+        console.log('🔧 Using standard Sharp.js preprocessing...');
+        processedBuffer = await this.imageProcessor.preprocessImage(imageBuffer, preprocessingOptions);
+      }
       
       // Perform OCR with fallback strategy
       console.log('👁️ Starting OCR text extraction...');
       let result = await this.performOCRWithFallback(processedBuffer, config);
       
-      const processingTime = Date.now() - startTime;
-      result.processingTime = processingTime;
+      // Store Tesseract result for comparison
+      const tesseractResult = {
+        confidence: result.confidence,
+        processingTime: result.processingTime
+      };
       
-      // Validate minimum confidence threshold
-      if (result.confidence < config.minConfidence) {
-        console.warn(`⚠️ OCR confidence ${result.confidence.toFixed(2)} below threshold ${config.minConfidence}`);
+      // Check if Google Vision fallback should be triggered
+      let fallbackUsed = false;
+      let googleVisionResult: { confidence: number; processingTime: number } | undefined;
+      
+      if (config.useGoogleVisionFallback && 
+          result.confidence < config.minConfidence && 
+          this.googleVisionProcessor) {
+        
+        console.log(`🔄 Tesseract confidence ${(result.confidence * 100).toFixed(1)}% below threshold, trying Google Vision fallback...`);
+        
+        try {
+          const visionStartTime = Date.now();
+          const visionOCRResult = await this.googleVisionProcessor.extractText(imageBuffer);
+          const visionProcessingTime = Date.now() - visionStartTime;
+          
+          googleVisionResult = {
+            confidence: visionOCRResult.confidence,
+            processingTime: visionProcessingTime
+          };
+          
+          console.log(`🔍 Google Vision result: ${(visionOCRResult.confidence * 100).toFixed(1)}% confidence in ${visionProcessingTime}ms`);
+          
+          // Use Google Vision result if it has higher confidence
+          if (visionOCRResult.confidence > result.confidence) {
+            console.log(`🎯 Google Vision has better confidence, switching to Vision result`);
+            result = {
+              text: visionOCRResult.text,
+              confidence: visionOCRResult.confidence,
+              processingTime: visionOCRResult.processingTime,
+              preprocessingMethod,
+              engine: 'google-vision',
+              fallbackUsed: true,
+              tesseractResult,
+              googleVisionResult
+            };
+            fallbackUsed = true;
+          } else {
+            console.log(`📊 Tesseract result still better, keeping original result`);
+            result.engine = 'tesseract';
+            result.fallbackUsed = false;
+            result.tesseractResult = tesseractResult;
+            result.googleVisionResult = googleVisionResult;
+          }
+          
+        } catch (error) {
+          console.warn('⚠️ Google Vision fallback failed:', error);
+          // Continue with Tesseract result
+          result.engine = 'tesseract';
+          result.fallbackUsed = false;
+          result.tesseractResult = tesseractResult;
+        }
+      } else {
+        // No fallback needed or available
+        result.engine = 'tesseract';
+        result.fallbackUsed = false;
+        result.tesseractResult = tesseractResult;
+        
+        if (!config.useGoogleVisionFallback) {
+          console.log('ℹ️ Google Vision fallback disabled in configuration');
+        } else if (!this.googleVisionProcessor) {
+          console.log('ℹ️ Google Vision processor not available');
+        } else {
+          console.log(`✅ Tesseract confidence ${(result.confidence * 100).toFixed(1)}% meets threshold, no fallback needed`);
+        }
       }
       
-      console.log(`✅ OCR completed in ${processingTime}ms with ${(result.confidence * 100).toFixed(1)}% confidence`);
+      const totalProcessingTime = Date.now() - startTime;
+      result.processingTime = totalProcessingTime;
+      result.preprocessingMethod = preprocessingMethod;
+      
+      // Final validation
+      if (result.confidence < config.minConfidence) {
+        console.warn(`⚠️ Final OCR confidence ${(result.confidence * 100).toFixed(1)}% still below threshold ${(config.minConfidence * 100).toFixed(1)}%`);
+      }
+      
+      console.log(`✅ OCR completed in ${totalProcessingTime}ms with ${(result.confidence * 100).toFixed(1)}% confidence`);
+      console.log(`🔧 Engine: ${result.engine}${fallbackUsed ? ' (fallback)' : ''}`);
+      console.log(`🔧 Preprocessing: ${preprocessingMethod}`);
       console.log(`📝 Extracted text preview: "${result.text.substring(0, 100)}${result.text.length > 100 ? '...' : ''}"`);
       
       return result;
