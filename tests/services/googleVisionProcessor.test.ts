@@ -1,13 +1,59 @@
-import { GoogleVisionProcessor } from '../../src/services/googleVisionProcessor.js';
-import { DEFAULT_GOOGLE_VISION_CONFIG } from '../../src/types/googleVision.js';
+import { jest } from '@jest/globals';
 
-// Mock the Google Cloud Vision client
+// Mock the Google Cloud Vision client completely
 jest.mock('@google-cloud/vision', () => ({
   ImageAnnotatorClient: jest.fn().mockImplementation(() => ({
-    textDetection: jest.fn(),
-    documentTextDetection: jest.fn()
+    textDetection: jest.fn().mockResolvedValue([{
+      textAnnotations: [{ description: 'Mock text', boundingPoly: {} }]
+    }]),
+    documentTextDetection: jest.fn().mockResolvedValue([{
+      fullTextAnnotation: { 
+        text: 'Mock document text',
+        pages: [{
+          confidence: 0.95,
+          blocks: []
+        }]
+      }
+    }]),
+    close: jest.fn().mockResolvedValue(undefined)
   }))
 }));
+
+// Mock file system access to prevent credential file loading
+jest.mock('fs', () => ({
+  readFileSync: jest.fn().mockReturnValue('{"type":"service_account","project_id":"test"}'),
+  existsSync: jest.fn().mockReturnValue(true)
+}));
+
+// Mock path module
+jest.mock('path', () => ({
+  resolve: jest.fn((p) => p),
+  join: jest.fn((...args) => args.join('/')),
+  dirname: jest.fn(() => '/test'),
+  basename: jest.fn((p) => p.split('/').pop())
+}));
+
+// Mock environment validation
+jest.mock('../../src/config/env.js', () => ({
+  validateEnv: jest.fn().mockReturnValue({
+    PORT: '3000',
+    NODE_ENV: 'test',
+    TELEGRAM_BOT_TOKEN: 'test-token',
+    GOOGLE_VISION_ENABLED: true,
+    GOOGLE_CLOUD_PROJECT_ID: 'test-project',
+    GOOGLE_APPLICATION_CREDENTIALS: 'test-key.json',
+    GOOGLE_VISION_USE_DOCUMENT_DETECTION: true,
+    GOOGLE_VISION_QUOTA_LIMIT: 1000
+  })
+}));
+
+// Mock console methods to reduce test noise
+const mockConsoleLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+const mockConsoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+const mockConsoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+import { GoogleVisionProcessor } from '../../src/services/googleVisionProcessor.js';
+import { DEFAULT_GOOGLE_VISION_CONFIG } from '../../src/types/googleVision.js';
 
 describe('GoogleVisionProcessor', () => {
   let processor: GoogleVisionProcessor;
@@ -33,6 +79,12 @@ describe('GoogleVisionProcessor', () => {
       0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
       0xDE
     ]);
+  });
+
+  afterAll(() => {
+    mockConsoleLog.mockRestore();
+    mockConsoleError.mockRestore();
+    mockConsoleWarn.mockRestore();
   });
 
   describe('Initialization', () => {

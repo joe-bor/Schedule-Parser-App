@@ -1,6 +1,27 @@
+import { jest } from '@jest/globals';
 import { OCRProcessor } from '../../src/services/ocrProcessor.js';
 import { DEFAULT_OCR_CONFIG } from '../../src/types/ocr.js';
 import { DEFAULT_OPENCV_PREPROCESSING } from '../../src/types/opencv.js';
+
+// Mock environment validation
+jest.mock('../../src/config/env.js', () => ({
+  validateEnv: jest.fn().mockReturnValue({
+    PORT: '3000',
+    NODE_ENV: 'test',
+    TELEGRAM_BOT_TOKEN: 'test-token',
+    TELEGRAM_WEBHOOK_URL: 'https://test.webhook.url',
+    GOOGLE_VISION_ENABLED: false, // Disable Google Vision for this test
+    GOOGLE_CLOUD_PROJECT_ID: 'test-project',
+    GOOGLE_APPLICATION_CREDENTIALS: 'test-key.json',
+    GOOGLE_VISION_USE_DOCUMENT_DETECTION: false,
+    GOOGLE_VISION_QUOTA_LIMIT: 1000
+  })
+}));
+
+// Mock console methods to reduce test noise
+const mockConsoleLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+const mockConsoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+const mockConsoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
 describe('OCRProcessor with Advanced Preprocessing', () => {
   let processor: OCRProcessor;
@@ -25,6 +46,9 @@ describe('OCRProcessor with Advanced Preprocessing', () => {
 
   afterAll(async () => {
     await processor.terminate();
+    mockConsoleLog.mockRestore();
+    mockConsoleError.mockRestore();
+    mockConsoleWarn.mockRestore();
   });
 
   describe('Advanced Preprocessing Integration', () => {
