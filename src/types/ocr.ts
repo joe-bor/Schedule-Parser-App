@@ -2,6 +2,18 @@ export interface OCRResult {
   text: string;
   confidence: number;
   processingTime: number;
+  preprocessingMethod?: string;
+  qualityScore?: number;
+  engine?: 'tesseract' | 'google-vision' | 'hybrid';
+  fallbackUsed?: boolean;
+  tesseractResult?: {
+    confidence: number;
+    processingTime: number;
+  };
+  googleVisionResult?: {
+    confidence: number;
+    processingTime: number;
+  };
 }
 
 export interface TelegramFileInfo {
@@ -40,7 +52,9 @@ export const DEFAULT_FILE_VALIDATION: FileValidationOptions = {
 export const DEFAULT_OCR_CONFIG = {
   lang: 'eng',
   minConfidence: 0.8, // High threshold for usable text quality
-  timeoutMs: 30000
+  timeoutMs: 30000,
+  useAdvancedPreprocessing: true, // Enable OpenCV preprocessing by default
+  useGoogleVisionFallback: true // Enable Google Vision fallback when confidence is low
 } as const;
 
 export type OCRConfig = typeof DEFAULT_OCR_CONFIG;

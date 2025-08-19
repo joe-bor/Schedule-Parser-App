@@ -15,6 +15,22 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
+
+  // Google Cloud Vision (optional for enhanced OCR)
+  GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
+  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(), // Path to service account key file
+  GOOGLE_VISION_ENABLED: z
+    .string()
+    .default("true")
+    .transform((val) => val === "true"),
+  GOOGLE_VISION_QUOTA_LIMIT: z
+    .string()
+    .default("1000")
+    .transform((val) => parseInt(val, 10)),
+  GOOGLE_VISION_USE_DOCUMENT_DETECTION: z
+    .string()
+    .default("true")
+    .transform((val) => val === "true"),
 });
 
 export type Env = z.infer<typeof envSchema>;

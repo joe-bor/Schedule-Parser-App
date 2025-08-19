@@ -8,6 +8,44 @@ This is a Schedule Parser Bot that processes schedule photos via Telegram and ex
 
 **Current State**: Phase 1 (Core OCR Infrastructure) is complete. The bot can receive photos via Telegram, download them, and extract text using Tesseract.js with real-time user feedback.
 
+## Commit Methodology
+
+### Atomic Commits Strategy
+When introducing significant features or changes, break them into small, logical commits that:
+
+1. **Single Responsibility**: Each commit should implement one logical change
+2. **Buildable State**: Every commit should leave the codebase in a working state
+3. **Clear Intent**: Commit messages should clearly describe what and why
+4. **Easy Rollback**: Individual commits can be reverted without breaking dependencies
+
+### Commit Categories
+- **feat**: New features or enhancements
+- **fix**: Bug fixes
+- **refactor**: Code restructuring without behavior changes
+- **test**: Adding or updating tests
+- **docs**: Documentation updates
+- **deps**: Dependency updates
+- **config**: Configuration changes
+
+### Example Commit Sequence
+For major features like Google Vision integration:
+```bash
+git commit -m "deps: add @google-cloud/vision dependency for enhanced OCR"
+git commit -m "feat: create Google Vision type definitions and interfaces"  
+git commit -m "feat: implement GoogleVisionProcessor service class"
+git commit -m "config: extend environment validation for Google Cloud"
+git commit -m "feat: integrate Google Vision fallback logic into OCRProcessor"
+git commit -m "feat: enhance Telegram responses with engine comparison"
+git commit -m "test: add comprehensive Google Vision integration tests"
+git commit -m "docs: add Google Cloud Vision API setup guide"
+```
+
+This approach allows for:
+- Easy identification of when specific functionality was added
+- Selective rollback of problematic changes
+- Better code review granularity
+- Clearer project history and debugging
+
 ## Development Commands
 
 ### Essential Commands

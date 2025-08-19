@@ -50,10 +50,34 @@ async function processDocumentOCR(document: any, chatId: number): Promise<void> 
     
     // Send results to user
     if (ocrResult.text.trim().length > 0) {
+      // Create engine status message
+      let engineInfo = `🤖 <b>Engine:</b> ${ocrResult.engine || 'tesseract'}`;
+      if (ocrResult.fallbackUsed) {
+        engineInfo += ` (fallback activated)`;
+      }
+      
+      // Add comparison if both engines were used
+      let comparisonInfo = '';
+      if (ocrResult.tesseractResult && ocrResult.googleVisionResult) {
+        comparisonInfo = `\n📊 <b>Comparison:</b>\n` +
+                        `   • Tesseract: ${(ocrResult.tesseractResult.confidence * 100).toFixed(1)}%\n` +
+                        `   • Google Vision: ${(ocrResult.googleVisionResult.confidence * 100).toFixed(1)}%`;
+      }
+      
+      // Truncate text if too long for Telegram
+      let displayText = ocrResult.text;
+      const maxLength = 3000; // Leave room for other message content
+      if (displayText.length > maxLength) {
+        displayText = displayText.substring(0, maxLength) + '\n\n... [Text truncated due to length]';
+      }
+      
       const message = `✅ <b>OCR Processing Complete!</b> 📄\n\n` +
-                     `📝 <b>Extracted Text:</b>\n<code>${ocrResult.text}</code>\n\n` +
+                     `📝 <b>Extracted Text:</b>\n<code>${displayText}</code>\n\n` +
                      `🎯 <b>Confidence:</b> ${(ocrResult.confidence * 100).toFixed(1)}%\n` +
-                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms\n\n` +
+                     engineInfo + `\n` +
+                     `🔧 <b>Preprocessing:</b> ${ocrResult.preprocessingMethod || 'standard'}\n` +
+                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms` +
+                     comparisonInfo + `\n\n` +
                      `🔄 <i>Schedule parsing and calendar integration coming soon!</i>`;
       
       await sendMessage(chatId, message);
@@ -115,10 +139,34 @@ async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void>
     
     // Send results to user
     if (ocrResult.text.trim().length > 0) {
+      // Create engine status message
+      let engineInfo = `🤖 <b>Engine:</b> ${ocrResult.engine || 'tesseract'}`;
+      if (ocrResult.fallbackUsed) {
+        engineInfo += ` (fallback activated)`;
+      }
+      
+      // Add comparison if both engines were used
+      let comparisonInfo = '';
+      if (ocrResult.tesseractResult && ocrResult.googleVisionResult) {
+        comparisonInfo = `\n📊 <b>Comparison:</b>\n` +
+                        `   • Tesseract: ${(ocrResult.tesseractResult.confidence * 100).toFixed(1)}%\n` +
+                        `   • Google Vision: ${(ocrResult.googleVisionResult.confidence * 100).toFixed(1)}%`;
+      }
+      
+      // Truncate text if too long for Telegram
+      let displayText = ocrResult.text;
+      const maxLength = 3000; // Leave room for other message content
+      if (displayText.length > maxLength) {
+        displayText = displayText.substring(0, maxLength) + '\n\n... [Text truncated due to length]';
+      }
+      
       const message = `✅ <b>OCR Processing Complete!</b>\n\n` +
-                     `📝 <b>Extracted Text:</b>\n<code>${ocrResult.text}</code>\n\n` +
+                     `📝 <b>Extracted Text:</b>\n<code>${displayText}</code>\n\n` +
                      `🎯 <b>Confidence:</b> ${(ocrResult.confidence * 100).toFixed(1)}%\n` +
-                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms\n\n` +
+                     engineInfo + `\n` +
+                     `🔧 <b>Preprocessing:</b> ${ocrResult.preprocessingMethod || 'standard'}\n` +
+                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms` +
+                     comparisonInfo + `\n\n` +
                      `🔄 <i>Schedule parsing and calendar integration coming soon!</i>`;
       
       await sendMessage(chatId, message);
