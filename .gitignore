@@ -44,3 +44,8 @@ dist/
 *.tsbuildinfo
 .claude/
 OCR_IMPLEMENTATION_PLAN.md
+
+# Sample/test data - contains potentially sensitive information
+actual-schedule.jpeg
+sample-schedules/
+test-images/
