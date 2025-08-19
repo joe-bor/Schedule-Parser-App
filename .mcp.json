@@ -3,6 +3,10 @@
     "tesseract-js": {
       "type": "http",
       "url": "https://gitmcp.io/naptha/tesseract.js"
+    },
+    "opencv-mcp": {
+      "type": "http", 
+      "url": "https://gitmcp.io/GongRzhe/opencv-mcp-server"
     }
   }
 }
