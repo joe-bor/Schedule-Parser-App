@@ -1,25 +1,71 @@
-import { OCRProcessor } from '../../src/services/ocrProcessor.js';
-import { DEFAULT_OCR_CONFIG } from '../../src/types/ocr.js';
+import { jest } from '@jest/globals';
+
+// Mock Tesseract.js to avoid actual OCR processing
+jest.mock('tesseract.js', () => ({
+  createWorker: jest.fn().mockResolvedValue({
+    recognize: jest.fn().mockResolvedValue({
+      data: { text: 'Mock OCR text', confidence: 85 }
+    }),
+    setParameters: jest.fn().mockResolvedValue(undefined),
+    terminate: jest.fn().mockResolvedValue(undefined)
+  })
+}));
 
 // Mock the Google Cloud Vision processor
 jest.mock('../../src/services/googleVisionProcessor.js', () => ({
   GoogleVisionProcessor: jest.fn().mockImplementation(() => ({
-    extractText: jest.fn(),
-    isVisionReady: jest.fn(),
-    getUsageStats: jest.fn(),
-    getVisionInfo: jest.fn()
+    extractText: jest.fn().mockResolvedValue({
+      text: 'Mock Google Vision text',
+      confidence: 0.92,
+      processingTime: 500
+    }),
+    isVisionReady: jest.fn().mockResolvedValue(true),
+    getUsageStats: jest.fn().mockReturnValue({
+      requestsThisMonth: 10,
+      quotaLimit: 1000,
+      remainingQuota: 990
+    }),
+    getVisionInfo: jest.fn().mockReturnValue({
+      enabled: true,
+      projectId: 'test-project'
+    })
   }))
 }));
 
 // Mock environment validation
 jest.mock('../../src/config/env.js', () => ({
   validateEnv: jest.fn().mockReturnValue({
+    PORT: '3000',
+    NODE_ENV: 'test',
+    TELEGRAM_BOT_TOKEN: 'test-token',
+    TELEGRAM_WEBHOOK_URL: 'https://test.webhook.url',
     GOOGLE_VISION_ENABLED: true,
     GOOGLE_CLOUD_PROJECT_ID: 'test-project',
     GOOGLE_APPLICATION_CREDENTIALS: 'test-key.json',
-    GOOGLE_VISION_USE_DOCUMENT_DETECTION: false
+    GOOGLE_VISION_USE_DOCUMENT_DETECTION: false,
+    GOOGLE_VISION_QUOTA_LIMIT: 1000
   })
 }));
+
+// Mock Sharp for image processing
+jest.mock('sharp', () => {
+  const mockSharp = jest.fn(() => ({
+    grayscale: jest.fn().mockReturnThis(),
+    normalize: jest.fn().mockReturnThis(),
+    sharpen: jest.fn().mockReturnThis(),
+    toBuffer: jest.fn().mockResolvedValue(Buffer.from('mock processed image'))
+  }));
+  mockSharp.default = mockSharp;
+  return mockSharp;
+});
+
+// Mock console methods to reduce test noise
+const mockConsoleLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+const mockConsoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+const mockConsoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+import { OCRProcessor } from '../../src/services/ocrProcessor.js';
+import { DEFAULT_OCR_CONFIG } from '../../src/types/ocr.js';
 
 describe('OCRProcessor with Google Vision Integration', () => {
   let processor: OCRProcessor;
@@ -42,6 +88,12 @@ describe('OCRProcessor with Google Vision Integration', () => {
 
   afterEach(async () => {
     await processor.terminate();
+  });
+
+  afterAll(() => {
+    mockConsoleLog.mockRestore();
+    mockConsoleError.mockRestore();
+    mockConsoleWarn.mockRestore();
   });
 
   describe('Google Vision Integration', () => {
