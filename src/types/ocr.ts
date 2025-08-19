@@ -24,7 +24,7 @@ export interface TelegramFileInfo {
 }
 
 export interface ProcessingError {
-  code: 'DOWNLOAD_FAILED' | 'INVALID_FILE' | 'OCR_FAILED' | 'FILE_TOO_LARGE' | 'NETWORK_ERROR';
+  code: 'DOWNLOAD_FAILED' | 'INVALID_FILE' | 'OCR_FAILED' | 'FILE_TOO_LARGE' | 'NETWORK_ERROR' | 'INVALID_TABLE_STRUCTURE' | 'SCHEDULE_PARSING_FAILED';
   message: string;
   originalError?: Error | undefined;
 }
