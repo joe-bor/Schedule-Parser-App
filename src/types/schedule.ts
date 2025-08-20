@@ -12,7 +12,7 @@ export interface TimeSlot {
 export interface DailySchedule {
   date: string;        // YYYY-MM-DD format
   dayName: string;     // "Monday", "Tuesday", etc.
-  timeSlot?: TimeSlot; // undefined if day off
+  timeSlot?: TimeSlot | undefined; // undefined if day off
   notes?: string;      // Additional info like "Meat Cutter"
 }
 

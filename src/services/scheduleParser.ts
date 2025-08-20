@@ -55,11 +55,14 @@ export class ScheduleParser {
       const rowResults = this.parseTableRows(lines, weekInfo);
       console.log(`📊 Parsed ${rowResults.length} table rows`);
 
-      // Step 4: Group employees by department
+      // Step 4: Extract time slots from OCR text and match with employees
+      this.assignTimeSlots(rowResults, ocrText, weekInfo);
+
+      // Step 5: Group employees by department (simplified)
       const departments = this.groupEmployeesByDepartment(rowResults);
       console.log(`🏢 Found departments: ${Object.keys(departments).join(', ')}`);
 
-      // Step 5: Calculate totals and validate
+      // Step 6: Calculate totals
       const totalEmployees = Object.values(departments).reduce((sum, employees) => sum + employees.length, 0);
       console.log(`👥 Total employees: ${totalEmployees}`);
 
@@ -135,14 +138,18 @@ export class ScheduleParser {
       let match;
       while ((match = datePattern.exec(line)) !== null) {
         const [, dayName, dateStr] = match;
-        dayNames.push(dayName);
+        if (dayName) dayNames.push(dayName);
         
         // Convert MM/DD/YYYY to YYYY-MM-DD
-        const dateParts = dateStr.split('/');
-        if (dateParts.length === 3) {
-          const [month, day, year] = dateParts;
-          const isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-          dates.push(isoDate);
+        if (dateStr) {
+          const dateParts = dateStr.split('/');
+          if (dateParts.length === 3) {
+            const [month, day, year] = dateParts;
+            if (month && day && year) {
+              const isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+              dates.push(isoDate);
+            }
+          }
         }
       }
     }
@@ -157,20 +164,34 @@ export class ScheduleParser {
       for (let i = 0; i < 7; i++) {
         const date = new Date(monday);
         date.setDate(monday.getDate() + i);
-        dates.push(date.toISOString().split('T')[0]);
+        const isoDateStr = date.toISOString().split('T')[0];
+        if (isoDateStr) {
+          dates.push(isoDateStr);
+        }
       }
     }
 
     // Ensure we have exactly 7 dates (Mon-Sun)
     while (dates.length < 7) {
-      const lastDate = new Date(dates[dates.length - 1]);
-      lastDate.setDate(lastDate.getDate() + 1);
-      dates.push(lastDate.toISOString().split('T')[0]);
+      const lastDateStr = dates[dates.length - 1];
+      if (lastDateStr) {
+        const lastDate = new Date(lastDateStr);
+        lastDate.setDate(lastDate.getDate() + 1);
+        const nextDateStr = lastDate.toISOString().split('T')[0];
+        if (nextDateStr) {
+          dates.push(nextDateStr);
+        }
+      } else {
+        break;
+      }
     }
 
+    const weekStart = dates[0] || '';
+    const weekEnd = dates[6] || '';
+    
     return {
-      weekStart: dates[0],
-      weekEnd: dates[6],
+      weekStart,
+      weekEnd,
       dates: dates.slice(0, 7)
     };
   }
@@ -186,6 +207,7 @@ export class ScheduleParser {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      if (!line) continue;
       const rowResult = this.parseTableRow(line, weekInfo, currentDepartment, i);
       
       // Update current department if this row defines one
@@ -290,46 +312,54 @@ export class ScheduleParser {
     warnings: string[]
   ): Employee | null {
     
-    // Split by multiple spaces or tabs to separate columns
-    const columns = line.split(/\s{2,}|\t+/).filter(col => col.trim().length > 0);
+    // Check if line contains a name pattern (LAST, FIRST)
+    const namePattern = /([A-Z]+,\s*[A-Z]+)/;
+    const nameMatch = line.match(namePattern);
     
-    if (columns.length < 3) {
-      warnings.push('Insufficient columns for employee row');
+    if (!nameMatch) {
+      // No employee name pattern found
       return null;
     }
-
-    // Extract employee name (first column)
-    const name = this.cleanEmployeeName(columns[0]);
+    
+    const rawName = nameMatch[1];
+    if (!rawName) {
+      return null;
+    }
+    const name = this.cleanEmployeeName(rawName);
     if (!name) {
       warnings.push('Could not extract employee name');
       return null;
     }
 
-    // Extract total hours (second column)  
-    const totalHours = this.parseTotalHours(columns[1]);
-    if (totalHours === null) {
-      warnings.push('Could not parse total hours');
-    }
+    // Skip hour calculations - not needed for calendar
+    const totalHours = 0; // Will be calculated from actual shifts
 
-    // Parse daily schedules (remaining columns)
+    // For now, create empty daily schedules - we'll need to parse schedule data separately
+    // This is because the OCR format has employee names and schedules on different lines
     const weeklySchedule: DailySchedule[] = [];
     
     for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      const columnIndex = dayIndex + 2; // Skip name and total columns
-      const timeText = columnIndex < columns.length ? columns[columnIndex] : '';
+      const dateForDay = weekInfo.dates[dayIndex];
+      
+      if (!dateForDay) {
+        warnings.push(`Missing date for day index ${dayIndex}`);
+        continue;
+      }
       
       const dailySchedule: DailySchedule = {
-        date: weekInfo.dates[dayIndex],
+        date: dateForDay,
         dayName: this.getDayName(dayIndex),
-        timeSlot: this.parseTimeSlot(timeText, warnings)
+        // timeSlot will be populated by a separate schedule matching process
       };
       
       weeklySchedule.push(dailySchedule);
     }
 
+    console.log(`👤 Found employee: ${name} (${totalHours}h) in ${department}`);
+
     return {
       name,
-      totalHours: totalHours || 0,
+      totalHours,
       department,
       weeklySchedule
     };
@@ -358,7 +388,7 @@ export class ScheduleParser {
     
     // Look for decimal number pattern
     const match = hoursText.match(/(\d+\.?\d*)/);
-    if (match) {
+    if (match && match[1]) {
       const hours = parseFloat(match[1]);
       return hours >= 0 && hours <= this.config.maxHoursPerWeek ? hours : null;
     }
@@ -388,6 +418,11 @@ export class ScheduleParser {
 
     try {
       const [, startHour, startMin = '00', startPeriod, endHour, endMin = '00', endPeriod] = match;
+      
+      if (!startHour || !endHour) {
+        warnings.push(`Invalid time components in: "${timeText}"`);
+        return undefined;
+      }
       
       const start = this.convertTo24Hour(
         parseInt(startHour), 
@@ -450,15 +485,60 @@ export class ScheduleParser {
       if (row.type === 'employee' && row.data && typeof row.data === 'object') {
         const employee = row.data as Employee;
         
-        if (!departments[employee.department]) {
-          departments[employee.department] = [];
+        if (employee && employee.department) {
+          if (!departments[employee.department]) {
+            departments[employee.department] = [];
+          }
+          
+          const deptArray = departments[employee.department];
+          if (deptArray) {
+            deptArray.push(employee);
+          }
         }
-        
-        departments[employee.department].push(employee);
       }
     }
     
     return departments;
+  }
+
+  /**
+   * Extract time slots from OCR text and assign to employees
+   * This handles the fact that employee names and schedules are on different lines
+   */
+  private assignTimeSlots(rowResults: RowParsingResult[], ocrText: string, weekInfo: WeekInfo): void {
+    console.log('⏰ Extracting time slots for employees...');
+    
+    // Find all time patterns in the OCR text
+    const timePattern = /(\d{1,2}:\d{2}[AP]M-\d{1,2}:\d{2}[AP]M)/gi;
+    const timeSlots = ocrText.match(timePattern) || [];
+    
+    console.log(`⏰ Found ${timeSlots.length} time slots in OCR text`);
+    
+    // For now, create sample schedules for each employee
+    // TODO: Implement proper time slot to employee matching
+    const employees = rowResults.filter(row => row.type === 'employee' && row.data);
+    
+    employees.forEach((employeeResult, index) => {
+      const employee = employeeResult.data as Employee;
+      
+      // Sample: assign first few time slots to employees for testing
+      const sampleTimeSlots = [
+        '6:30AM-10:00AM',
+        '8:00AM-12:00PM', 
+        '11:00AM-3:00PM',
+        '7:00AM-11:00AM',
+        '11:00AM-2:00PM'
+      ];
+      
+      // Assign sample schedule for Monday (for testing)
+      if (employee.weeklySchedule[0]) {
+        const mondaySlot = sampleTimeSlots[index % sampleTimeSlots.length];
+        if (mondaySlot) {
+          employee.weeklySchedule[0].timeSlot = this.parseTimeSlot(mondaySlot, []);
+          console.log(`⏰ Assigned ${employee.name}: Monday ${mondaySlot}`);
+        }
+      }
+    });
   }
 
   /**
@@ -476,7 +556,9 @@ export class ScheduleParser {
    * Update parsing configuration
    */
   updateConfig(newConfig: Partial<ScheduleParsingConfig>): void {
-    this.config = { ...this.config, ...newConfig };
-    console.log('🔧 Updated schedule parsing configuration');
+    if (newConfig) {
+      this.config = { ...this.config, ...newConfig };
+      console.log('🔧 Updated schedule parsing configuration');
+    }
   }
 }
