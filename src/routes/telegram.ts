@@ -430,7 +430,9 @@ async function handleCalendarCommand(chatId: number, telegramUserId: string): Pr
     
     // Get authorization URL
     const env = validateEnv();
-    const baseUrl = env.TELEGRAM_WEBHOOK_URL?.replace('/webhook', '') || 'http://localhost:3000';
+    // IMPORTANT: Webhook URL is /api/telegram/webhook, but calendar routes are /api/calendar/*
+    // We need to extract the base domain without the specific API path
+    const baseUrl = env.TELEGRAM_WEBHOOK_URL?.replace('/api/telegram/webhook', '') || 'http://localhost:3000';
     const authUrl = `${baseUrl}/api/calendar/auth/${telegramUserId}`;
     
     try {

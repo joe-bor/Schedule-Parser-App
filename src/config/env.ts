@@ -9,7 +9,7 @@ export const envSchema = z.object({
 
   // Telegram (required for bot functionality)
   TELEGRAM_BOT_TOKEN: z.string(),
-  TELEGRAM_WEBHOOK_URL: z.string().optional(), // Allow localhost for dev, but warn
+  TELEGRAM_WEBHOOK_URL: z.string().optional(), // Format: https://domain.com/api/telegram/webhook (used to derive base URL for calendar routes)
 
   // Google Calendar OAuth (optional for development, required for calendar integration)
   GOOGLE_CLIENT_ID: z.string().optional(),

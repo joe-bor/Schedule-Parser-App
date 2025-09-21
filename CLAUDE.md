@@ -131,7 +131,14 @@ The application uses a service-oriented architecture with lazy loading:
 - `/api/health` - Health check endpoint
 - `/api/telegram/webhook` - Telegram bot webhook (rate limited)
 - `/api/telegram/setup` - Webhook registration
-- `/api/calendar/*` - Google Calendar integration (placeholder)
+- `/api/calendar/*` - Google Calendar integration (OAuth, events, status)
+
+**⚠️ CRITICAL: Route Base URL Handling**
+When constructing URLs from `TELEGRAM_WEBHOOK_URL` in telegram.ts:
+- Webhook URL format: `https://domain.com/api/telegram/webhook`
+- Calendar routes format: `https://domain.com/api/calendar/*`
+- **Always use**: `.replace('/api/telegram/webhook', '')` to get base domain
+- **Never use**: `.replace('/webhook', '')` (creates incorrect `/api/telegram` base)
 
 ### Type System
 - `src/types/ocr.ts` - OCR-related interfaces, configurations, and result types
