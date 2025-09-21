@@ -6,6 +6,7 @@ import { TelegramFileManager } from "../services/fileManager.js";
 import { OCRProcessor } from "../services/ocrProcessor.js";
 import { UserSessionManager } from "../services/userSessionManager.js";
 import type { ProcessingError } from "../types/ocr.js";
+import type { ParsedSchedule, Employee } from "../types/schedule.js";
 
 const router = Router();
 
@@ -33,6 +34,59 @@ function getSessionManager(): UserSessionManager {
     sessionManager = new UserSessionManager();
   }
   return sessionManager;
+}
+
+/**
+ * Process document for schedule parsing (Phase 3A)
+ */
+async function processDocumentSchedule(document: any, chatId: number): Promise<void> {
+  try {
+    // Check if it's an image document
+    if (!document.mime_type?.startsWith('image/')) {
+      await sendMessage(chatId, "❌ Please send an image file (JPEG, PNG, WebP) for schedule parsing.");
+      return;
+    }
+
+    await sendMessage(chatId, "📅 Schedule parsing activated! Processing your employee schedule...");
+    
+    console.log(`🔍 Processing schedule: ${document.file_id} (${document.file_name}) - ${document.file_size} bytes`);
+    
+    // Download the document
+    const downloadResult = await getFileManager().downloadPhoto(document.file_id);
+    console.log(`✅ Document downloaded: ${downloadResult.buffer.length} bytes`);
+    
+    // Extract and parse schedule
+    const scheduleResult = await getOcrProcessor().extractSchedule(downloadResult.buffer);
+    
+    // Send structured schedule results to user
+    await sendScheduleResults(chatId, scheduleResult);
+    
+  } catch (error) {
+    console.error("❌ Schedule parsing failed:", error);
+    
+    let errorMessage = "❌ Failed to parse your schedule. ";
+    
+    if (error && typeof error === 'object' && 'code' in error) {
+      const processingError = error as ProcessingError;
+      switch (processingError.code) {
+        case 'INVALID_TABLE_STRUCTURE':
+          errorMessage += "The image doesn't appear to contain a valid employee schedule table.";
+          break;
+        case 'OCR_FAILED':
+          errorMessage += "Could not read text from the image. Please ensure the schedule is clearly visible.";
+          break;
+        case 'FILE_TOO_LARGE':
+          errorMessage += "The image file is too large. Please send a smaller file.";
+          break;
+        default:
+          errorMessage += "Please try with a clearer image or contact support.";
+      }
+    } else {
+      errorMessage += "Please try again or contact support if the issue persists.";
+    }
+    
+    await sendMessage(chatId, errorMessage);
+  }
 }
 
 /**
@@ -122,6 +176,88 @@ async function processDocumentOCR(document: any, chatId: number): Promise<void> 
     }
     
     await sendMessage(chatId, errorMessage);
+  }
+}
+
+/**
+ * Send formatted schedule results to user
+ */
+async function sendScheduleResults(chatId: number, scheduleResult: any): Promise<void> {
+  const { ocr, schedule, validation } = scheduleResult;
+  
+  // Create header with OCR info
+  let message = `✅ <b>Schedule Parsing Complete!</b> 📅\n\n`;
+  
+  // Add OCR metadata
+  message += `🎯 <b>OCR Confidence:</b> ${(ocr.confidence * 100).toFixed(1)}%\n`;
+  message += `🤖 <b>Engine:</b> ${ocr.engine || 'tesseract'}`;
+  if (ocr.fallbackUsed) {
+    message += ` (fallback activated)`;
+  }
+  message += `\n⏱️ <b>Processing Time:</b> ${ocr.processingTime + schedule.parseMetadata.processingTime}ms\n\n`;
+  
+  // Add schedule summary
+  message += `📊 <b>Schedule Summary:</b>\n`;
+  message += `📅 Week: ${formatDate(schedule.weekInfo.weekStart)} - ${formatDate(schedule.weekInfo.weekEnd)}\n`;
+  message += `👥 Total Employees: ${schedule.totalEmployees}\n`;
+  message += `🏢 Departments: ${Object.keys(schedule.departments).length}\n\n`;
+  
+  // Add validation status
+  if (validation.isValid) {
+    message += `✅ <b>Validation:</b> PASSED\n`;
+  } else {
+    message += `⚠️ <b>Validation:</b> ${validation.errors.length} errors, ${validation.warnings.length} warnings\n`;
+  }
+  
+  if (validation.warnings.length > 0) {
+    message += `\n📋 <b>Warnings:</b>\n`;
+    validation.warnings.slice(0, 3).forEach((warning: string) => {
+      message += `• ${warning}\n`;
+    });
+    if (validation.warnings.length > 3) {
+      message += `... and ${validation.warnings.length - 3} more\n`;
+    }
+  }
+  
+  message += `\n`;
+  
+  // Add department breakdown
+  for (const [deptName, employees] of Object.entries(schedule.departments)) {
+    message += `🏢 <b>${deptName} Department</b> (${(employees as Employee[]).length} employees)\n`;
+    
+    for (const employee of (employees as Employee[]).slice(0, 3)) { // Show first 3
+      const workDays = employee.weeklySchedule.filter(day => day.timeSlot).length;
+      message += `   👤 ${employee.name}: ${employee.totalHours}hrs (${workDays} days)\n`;
+    }
+    
+    if ((employees as Employee[]).length > 3) {
+      message += `   ... and ${(employees as Employee[]).length - 3} more employees\n`;
+    }
+    message += `\n`;
+  }
+  
+  // Check message length and truncate if needed
+  if (message.length > 4000) {
+    message = message.substring(0, 3800) + '\n\n... [Results truncated due to length]';
+  }
+  
+  message += `🔄 <i>Google Calendar integration coming next!</i>`;
+  
+  await sendMessage(chatId, message);
+  
+  // Send detailed employee schedules in separate messages if requested
+  // This could be activated by a command or button
+}
+
+/**
+ * Format date for display (YYYY-MM-DD -> MM/DD)
+ */
+function formatDate(dateStr: string): string {
+  try {
+    const [year, month, day] = dateStr.split('-');
+    return `${month}/${day}`;
+  } catch {
+    return dateStr;
   }
 }
 
@@ -241,8 +377,34 @@ async function handleTextMessage(text: string, chatId: number, telegramUserId: s
     return;
   }
   
+  if (command.startsWith('/ocr')) {
+    await sendMessage(chatId, `🔧 <b>Mode switched to OCR</b> 📄
+
+Send me an image and I'll extract the raw text using our multi-engine OCR pipeline.
+Use /schedule to switch back to schedule parsing mode.`);
+    // TODO: Store user preference in database/memory
+    return;
+  }
+  
+  if (command.startsWith('/schedule')) {
+    await sendMessage(chatId, `📅 <b>Mode switched to Schedule Parsing</b>
+
+Send me an employee schedule image and I'll extract structured data including:
+• Employee names and departments  
+• Work schedules and hours
+• Time slots and validation
+• Week information
+
+Use /ocr to switch to basic text extraction mode.`);
+    // TODO: Store user preference in database/memory
+    return;
+  }
+  
   // Default response for other text
-  await sendMessage(chatId, `I understand you sent: "${text}"\n\nTo get started, send me a schedule photo or use /help to see available commands.`);
+  await sendMessage(chatId, `📝 I received your message: "${text}"
+
+💡 Send me an employee schedule image to get started!
+Use /help for available commands.`);
 }
 
 /**
@@ -361,7 +523,9 @@ async function handleHelpCommand(chatId: number): Promise<void> {
     `• /start - Welcome message\n` +
     `• /help - Show this help\n` +
     `• /status - Bot and calendar status\n` +
-    `• /calendar - Calendar authorization\n\n` +
+    `• /calendar - Calendar authorization\n` +
+    `• /ocr - Basic OCR mode (text extraction only)\n` +
+    `• /schedule - Schedule parsing mode (structured data)\n\n` +
     `<b>🚀 How to Use:</b>\n` +
     `1. Send /calendar to connect Google Calendar\n` +
     `2. Send a schedule photo\n` +
@@ -377,12 +541,18 @@ async function handleHelpCommand(chatId: number): Promise<void> {
 async function handleStartCommand(chatId: number): Promise<void> {
   const welcomeMessage = 
     `🎉 <b>Welcome to Schedule Parser Bot!</b>\n\n` +
-    `I can extract text from schedule photos and create Google Calendar events automatically.\n\n` +
+    `🎯 <b>What I can do:</b>\n` +
+    `• Parse employee schedules from images\n` +
+    `• Extract structured data (names, hours, departments)\n` +
+    `• Create Google Calendar events automatically\n` +
+    `• High accuracy OCR with Google Vision fallback (90.5% confidence)\n\n` +
     `🚀 <b>Quick Start:</b>\n` +
-    `1. Use /calendar to connect your Google Calendar\n` +
+    `1. Use /calendar to connect your Google Calendar (optional)\n` +
     `2. Send me a photo of your schedule\n` +
-    `3. I'll create calendar events for you!\n\n` +
-    `📸 I support all image formats and use advanced OCR with 90.5% accuracy.\n\n` +
+    `3. I'll parse and optionally create calendar events!\n\n` +
+    `🔧 <b>Modes:</b>\n` +
+    `• /schedule - Full schedule parsing (default)\n` +
+    `• /ocr - Basic text extraction only\n\n` +
     `Use /help to see all available commands.`;
   
   await sendMessage(chatId, welcomeMessage);
@@ -489,9 +659,10 @@ router.post("/webhook", webhookLimiter, validateWebhook, async (req, res) => {
   }
 
   if (update.message?.document) {
-    // Process document with OCR (run asynchronously to avoid blocking webhook response)
-    processDocumentOCR(update.message.document, update.message.chat.id).catch(error => {
-      console.error("❌ Async document OCR processing failed:", error);
+    // Process document with schedule parsing by default (Phase 3A)
+    // Run asynchronously to avoid blocking webhook response
+    processDocumentSchedule(update.message.document, update.message.chat.id).catch(error => {
+      console.error("❌ Async document schedule processing failed:", error);
     });
   }
   

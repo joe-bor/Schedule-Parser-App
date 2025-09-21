@@ -9,17 +9,25 @@ import { DEFAULT_OPENCV_PREPROCESSING } from "../types/opencv.js";
 import { GoogleVisionProcessor } from "./googleVisionProcessor.js";
 import type { GoogleVisionConfig } from "../types/googleVision.js";
 import { validateEnv } from "../config/env.js";
+import { ScheduleParser } from "./scheduleParser.js";
+import { ScheduleValidator } from "../utils/scheduleValidator.js";
+import type { ParsedSchedule, ScheduleParsingConfig } from "../types/schedule.js";
+import { DEFAULT_SCHEDULE_PARSING_CONFIG } from "../types/schedule.js";
 
 export class OCRProcessor {
   private worker: Worker | null = null;
   private imageProcessor: ImagePreprocessor;
   private advancedProcessor: AdvancedImageProcessor;
   private googleVisionProcessor: GoogleVisionProcessor | null = null;
+  private scheduleParser: ScheduleParser;
+  private scheduleValidator: ScheduleValidator;
   private isInitialized = false;
 
-  constructor() {
+  constructor(scheduleConfig: ScheduleParsingConfig = DEFAULT_SCHEDULE_PARSING_CONFIG) {
     this.imageProcessor = new ImagePreprocessor();
     this.advancedProcessor = new AdvancedImageProcessor();
+    this.scheduleParser = new ScheduleParser(scheduleConfig);
+    this.scheduleValidator = new ScheduleValidator(scheduleConfig);
     this.initializeGoogleVision();
   }
 
@@ -336,6 +344,72 @@ export class OCRProcessor {
       initialized: this.isInitialized,
       language: this.isInitialized ? 'eng' : undefined
     };
+  }
+
+  /**
+   * Extract text and parse as structured schedule data (Phase 3A)
+   */
+  async extractSchedule(
+    imageBuffer: Buffer,
+    config: OCRConfig = DEFAULT_OCR_CONFIG,
+    preprocessingOptions: ImagePreprocessingOptions = DEFAULT_PREPROCESSING,
+    openCVOptions: OpenCVPreprocessingOptions = DEFAULT_OPENCV_PREPROCESSING,
+    scheduleConfig?: ScheduleParsingConfig
+  ): Promise<{ ocr: OCRResult; schedule: ParsedSchedule; validation: any }> {
+    console.log('📅 Starting schedule extraction with parsing...');
+    
+    // First, perform standard OCR extraction
+    const ocrResult = await this.extractText(imageBuffer, config, preprocessingOptions, openCVOptions);
+    console.log(`📄 OCR completed with ${(ocrResult.confidence * 100).toFixed(1)}% confidence`);
+    
+    // Update schedule parser config if provided
+    if (scheduleConfig) {
+      this.scheduleParser.updateConfig(scheduleConfig);
+      this.scheduleValidator = new ScheduleValidator({ ...DEFAULT_SCHEDULE_PARSING_CONFIG, ...scheduleConfig });
+    }
+    
+    // Parse the OCR text into structured schedule data
+    const schedule = await this.scheduleParser.parseSchedule(ocrResult.text, {
+      confidence: ocrResult.confidence,
+      processingTime: ocrResult.processingTime,
+      engine: ocrResult.engine || 'tesseract'
+    });
+    
+    console.log(`📊 Schedule parsed: ${schedule.totalEmployees} employees across ${Object.keys(schedule.departments).length} departments`);
+    
+    // Validate the parsed schedule
+    const validation = this.scheduleValidator.validateSchedule(schedule);
+    console.log(`🔍 Validation: ${validation.isValid ? 'PASSED' : 'FAILED'} (${validation.errors.length} errors, ${validation.warnings.length} warnings)`);
+    
+    // Attempt to fix common issues if validation failed
+    let finalSchedule = schedule;
+    if (!validation.isValid && validation.errors.length > 0) {
+      console.log('🔧 Attempting to fix parsing issues...');
+      const fixResult = this.scheduleValidator.fixCommonIssues(schedule);
+      if (fixResult.changes.length > 0) {
+        finalSchedule = fixResult.fixed;
+        console.log(`🔧 Applied ${fixResult.changes.length} fixes to schedule data`);
+        
+        // Re-validate after fixes
+        const revalidation = this.scheduleValidator.validateSchedule(finalSchedule);
+        console.log(`🔍 Re-validation: ${revalidation.isValid ? 'PASSED' : 'FAILED'} after fixes`);
+      }
+    }
+    
+    return {
+      ocr: ocrResult,
+      schedule: finalSchedule,
+      validation
+    };
+  }
+
+  /**
+   * Update schedule parsing configuration
+   */
+  updateScheduleConfig(config: Partial<ScheduleParsingConfig>): void {
+    this.scheduleParser.updateConfig(config);
+    this.scheduleValidator = new ScheduleValidator({ ...DEFAULT_SCHEDULE_PARSING_CONFIG, ...config });
+    console.log('🔧 Updated schedule parsing configuration');
   }
 
   private createProcessingError(
