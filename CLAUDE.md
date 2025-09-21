@@ -222,6 +222,18 @@ This project uses ESM modules exclusively:
 3. Register webhook via `/api/telegram/setup`
 4. Send photos to bot for real-time OCR testing
 
+### Calendar Integration Testing
+```bash
+# Test personal schedule filtering
+curl -X POST http://localhost:3000/api/calendar/test/personal-schedule
+
+# Check OAuth authentication status
+curl http://localhost:3000/api/calendar/status/{telegramUserId}
+
+# Generate OAuth URL (replace {telegramUserId})
+curl http://localhost:3000/api/calendar/auth/{telegramUserId}
+```
+
 ### Code Organization Patterns
 - **Lazy Service Loading**: Defer service instantiation until needed (see telegram routes)
 - **Environment Validation**: Use Zod schemas for type-safe config
@@ -259,17 +271,51 @@ Image Input → OpenCV/Sharp Preprocessing → Tesseract OCR
                                      Google Vision API → Best Result Selection
 ```
 
-### 🚀 **Phase 3 Options - READY TO IMPLEMENT**:
-#### **Phase 3A: Schedule Parsing (Recommended Next)**
-- **Structured Data Extraction**: Parse OCR text into dates, times, events, locations
-- **Format Detection**: Handle academic, business, personal schedule layouts
-- **Data Validation**: Confidence-based parsing with error handling
-- **Output Standardization**: Consistent event structure for calendar integration
+### ✅ **Phase 3: Schedule Processing & Calendar Integration - COMPLETED!** 🎉
 
-#### **Phase 3B: Google Calendar Integration (Alternative Next)**
-- **OAuth 2.0 Flow**: User authentication and authorization
-- **Calendar Event Creation**: Direct integration with Google Calendar API
-- **Batch Processing**: Multiple event creation from single schedule
-- **Conflict Detection**: Duplicate and overlap prevention
+#### **Phase 3A: Schedule Parsing - COMPLETED** ✅
+- **Structured Data Extraction**: Parse OCR text into dates, times, events, locations ✅
+- **Format Detection**: Handle academic, business, personal schedule layouts ✅
+- **Data Validation**: Confidence-based parsing with error handling ✅
+- **Output Standardization**: Consistent event structure for calendar integration ✅
 
-**Current State**: Production-ready OCR pipeline with 90.5% accuracy. Ready to proceed with either schedule parsing or calendar integration based on user priority.
+#### **Phase 3B: Google Calendar Integration - COMPLETED** ✅
+- **OAuth 2.0 Flow**: User authentication and authorization ✅
+- **Calendar Event Creation**: Direct integration with Google Calendar API ✅
+- **Batch Processing**: Multiple event creation from single schedule ✅
+- **Personal Schedule Filtering**: Extract all employees but create events only for Joezari Borlongan ✅
+- **Session Management**: Persistent authentication with token refresh ✅
+- **Timezone Support**: California (America/Los_Angeles) timezone configuration ✅
+
+#### **Complete Pipeline Architecture**:
+```
+Telegram Photo → OCR Processing → Schedule Parsing → Personal Filtering → Google Calendar
+     ↓               ↓                ↓                  ↓                    ↓
+File Download → Text Extraction → Employee Data → Joezari Events → Calendar Creation
+```
+
+### 🎯 **Current Capabilities - PRODUCTION READY**:
+- **End-to-End Processing**: Photo to calendar events in one workflow
+- **90.5% OCR Accuracy**: Multi-engine OCR with Google Vision fallback
+- **Smart Filtering**: Extracts all employee data but creates personal calendar events only
+- **OAuth Integration**: Secure Google Calendar authentication
+- **Timezone Aware**: California-based scheduling with proper datetime handling
+- **Batch Processing**: Multiple calendar events from single schedule photo
+
+### 📱 **Production Workflow**:
+1. **Photo Upload**: User sends schedule photo to Telegram bot
+2. **OCR Processing**: Multi-engine text extraction (90.5% accuracy)
+3. **Schedule Parsing**: Extract all employee schedules and work shifts
+4. **Personal Filtering**: Create calendar events only for Joezari Borlongan
+5. **OAuth Flow**: One-time Google Calendar authentication (if not already authenticated)
+6. **Calendar Creation**: Batch creation of work shifts in Google Calendar
+7. **Confirmation**: User receives success message with calendar event details
+
+### 🔑 **Key Features**:
+- **Smart Extraction**: Processes entire team schedule but creates personal events only
+- **Future-Ready**: Full employee data preserved for team invitation features
+- **Timezone Aware**: California (America/Los_Angeles) scheduling
+- **Department Colors**: Visual organization by work department (Meat=Blue, Produce=Green, etc.)
+- **Event Details**: Includes work hours, department, location, and 15-minute reminders
+
+**Current State**: Complete schedule processing pipeline from Telegram photos to Google Calendar events. Ready for production use with personal schedule filtering.

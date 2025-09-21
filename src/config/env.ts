@@ -11,10 +11,25 @@ export const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string(),
   TELEGRAM_WEBHOOK_URL: z.string().optional(), // Allow localhost for dev, but warn
 
-  // Google Calendar (optional for development)
+  // Google Calendar OAuth (optional for development, required for calendar integration)
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
+  
+  // Calendar integration settings
+  CALENDAR_DEFAULT_TIMEZONE: z.string().default("America/New_York"),
+  CALENDAR_SESSION_TIMEOUT_HOURS: z
+    .string()
+    .default("24")
+    .transform((val) => parseInt(val, 10)),
+  CALENDAR_BATCH_SIZE: z
+    .string()
+    .default("10")
+    .transform((val) => parseInt(val, 10)),
+  CALENDAR_CONFLICT_DETECTION: z
+    .string()
+    .default("true")
+    .transform((val) => val === "true"),
 
   // Google Cloud Vision (optional for enhanced OCR)
   GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
