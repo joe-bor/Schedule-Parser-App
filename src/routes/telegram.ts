@@ -37,9 +37,9 @@ function getSessionManager(): UserSessionManager {
 }
 
 /**
- * Process document for schedule parsing (Phase 3A)
+ * Process document for schedule parsing (Phase 3A) and calendar integration (Phase 3B)
  */
-async function processDocumentSchedule(document: any, chatId: number): Promise<void> {
+async function processDocumentSchedule(document: any, chatId: number, telegramUserId: string): Promise<void> {
   try {
     // Check if it's an image document
     if (!document.mime_type?.startsWith('image/')) {
@@ -60,6 +60,9 @@ async function processDocumentSchedule(document: any, chatId: number): Promise<v
     
     // Send structured schedule results to user
     await sendScheduleResults(chatId, scheduleResult);
+    
+    // Phase 3B: Calendar Integration
+    await processCalendarIntegration(chatId, telegramUserId, scheduleResult);
     
   } catch (error) {
     console.error("❌ Schedule parsing failed:", error);
@@ -180,6 +183,126 @@ async function processDocumentOCR(document: any, chatId: number): Promise<void> 
 }
 
 /**
+ * Process calendar integration for authenticated users (Phase 3B)
+ */
+async function processCalendarIntegration(chatId: number, telegramUserId: string, scheduleResult: any): Promise<void> {
+  try {
+    console.log(`🗓️ Starting calendar integration for user: ${telegramUserId}`);
+    
+    // Check if user is authenticated with Google Calendar
+    const sessionMgr = getSessionManager();
+    const isAuthenticated = await sessionMgr.isAuthenticated(telegramUserId);
+    
+    if (!isAuthenticated) {
+      console.log(`📋 User ${telegramUserId} not authenticated, prompting for calendar setup`);
+      await sendMessage(chatId, 
+        `📅 <b>Connect Your Google Calendar!</b>\n\n` +
+        `I found your work schedule! To automatically create calendar events:\n\n` +
+        `🔗 Use /calendar to connect your Google Calendar\n` +
+        `📸 Then send the schedule photo again for auto-creation!\n\n` +
+        `✨ <i>This will save you from manually entering ${scheduleResult.schedule?.totalEmployees || 'your'} shifts!</i>`
+      );
+      return;
+    }
+    
+    console.log(`✅ User ${telegramUserId} is authenticated, proceeding with calendar integration`);
+    
+    // Import calendar services and utilities
+    const { ScheduleToCalendarConverter } = await import('../utils/scheduleToCalendar.js');
+    const { CalendarService } = await import('../services/calendarService.js');
+    
+    // Create personal converter (filters for Joezari Borlongan only)
+    const personalConverter = ScheduleToCalendarConverter.createPersonalConverter();
+    const conversionResult = personalConverter.convertSchedule(scheduleResult.schedule);
+    
+    console.log(`🎯 Personal filtering: ${conversionResult.eventsCount} events created for user`);
+    
+    if (conversionResult.eventsCount === 0) {
+      await sendMessage(chatId,
+        `📅 <b>No Personal Schedule Found</b>\n\n` +
+        `I parsed the schedule successfully but didn't find any shifts for you (Joezari Borlongan).\n\n` +
+        `The schedule contained ${scheduleResult.schedule?.totalEmployees || 'multiple'} employees. ` +
+        `If your name appears differently in the schedule, please let me know!`
+      );
+      return;
+    }
+    
+    // Get user's authentication tokens
+    const tokens = await sessionMgr.getValidTokens(telegramUserId);
+    if (!tokens) {
+      await sendMessage(chatId,
+        `❌ <b>Authentication Error</b>\n\n` +
+        `Your calendar authentication has expired. Please use /calendar to reconnect.`
+      );
+      return;
+    }
+    
+    // Create calendar events
+    await sendMessage(chatId, `📅 <b>Creating Calendar Events...</b>\n\n⏳ Processing ${conversionResult.eventsCount} work shifts...`);
+    
+    const calendarService = new CalendarService();
+    const result = await calendarService.createMultipleEvents(conversionResult.events, tokens);
+    
+    if (result.success) {
+      const successCount = result.results?.filter(r => r.success).length || 0;
+      const failureCount = result.results?.filter(r => !r.success).length || 0;
+      
+      let message = `🎉 <b>Calendar Integration Complete!</b>\n\n`;
+      message += `✅ <b>Successfully created:</b> ${successCount} events\n`;
+      
+      if (failureCount > 0) {
+        message += `⚠️ <b>Failed to create:</b> ${failureCount} events\n`;
+      }
+      
+      message += `\n📅 <b>Your Work Schedule:</b>\n`;
+      
+      // Add summary of created events
+      const createdEvents = result.results?.filter(r => r.success) || [];
+      createdEvents.slice(0, 5).forEach((event, index) => {
+        const eventRequest = conversionResult.events[index];
+        const startTime = new Date(eventRequest.startDateTime).toLocaleDateString('en-US', { 
+          weekday: 'short', 
+          month: 'short', 
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+        message += `   🕐 ${startTime} - ${eventRequest.summary}\n`;
+      });
+      
+      if (createdEvents.length > 5) {
+        message += `   ... and ${createdEvents.length - 5} more events\n`;
+      }
+      
+      message += `\n📱 <b>View in Google Calendar:</b> https://calendar.google.com\n`;
+      message += `🔔 <i>You'll get 15-minute reminders before each shift!</i>`;
+      
+      await sendMessage(chatId, message);
+      
+      console.log(`🎉 Calendar integration completed: ${successCount} events created for user ${telegramUserId}`);
+      
+    } else {
+      console.error(`❌ Calendar integration failed for user ${telegramUserId}:`, result.error);
+      await sendMessage(chatId,
+        `❌ <b>Calendar Creation Failed</b>\n\n` +
+        `${result.error || 'Unable to create calendar events'}\n\n` +
+        `Your schedule was parsed successfully, but I couldn't create the calendar events. ` +
+        `Please try using /calendar to reconnect or try again later.`
+      );
+    }
+    
+  } catch (error) {
+    console.error(`❌ Calendar integration error for user ${telegramUserId}:`, error);
+    await sendMessage(chatId,
+      `❌ <b>Calendar Integration Error</b>\n\n` +
+      `Something went wrong while creating your calendar events. ` +
+      `Your schedule was parsed successfully, but the calendar integration failed.\n\n` +
+      `Please try using /calendar to reconnect your Google Calendar.`
+    );
+  }
+}
+
+/**
  * Send formatted schedule results to user
  */
 async function sendScheduleResults(chatId: number, scheduleResult: any): Promise<void> {
@@ -241,7 +364,7 @@ async function sendScheduleResults(chatId: number, scheduleResult: any): Promise
     message = message.substring(0, 3800) + '\n\n... [Results truncated due to length]';
   }
   
-  message += `🔄 <i>Google Calendar integration coming next!</i>`;
+  message += `🔄 <i>Processing calendar integration...</i>`;
   
   await sendMessage(chatId, message);
   
@@ -661,9 +784,10 @@ router.post("/webhook", webhookLimiter, validateWebhook, async (req, res) => {
   }
 
   if (update.message?.document) {
-    // Process document with schedule parsing by default (Phase 3A)
+    // Process document with schedule parsing and calendar integration (Phase 3A + 3B)
     // Run asynchronously to avoid blocking webhook response
-    processDocumentSchedule(update.message.document, update.message.chat.id).catch(error => {
+    const telegramUserId = update.message.from?.id?.toString() || '';
+    processDocumentSchedule(update.message.document, update.message.chat.id, telegramUserId).catch(error => {
       console.error("❌ Async document schedule processing failed:", error);
     });
   }

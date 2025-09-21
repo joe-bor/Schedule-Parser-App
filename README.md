@@ -16,10 +16,12 @@ Automated system that converts schedule photos into Google Calendar events via T
 1. **Send Photo** → Upload your schedule image to the Telegram bot
 2. **OCR Processing** → Multi-engine text extraction with 90.5% accuracy
 3. **Schedule Parsing** → Extract all employee schedules and work shifts
-4. **Personal Filtering** → Create calendar events only for your schedule
-5. **OAuth Flow** → One-time Google Calendar authentication (if needed)
+4. **Authentication Check** → Verify Google Calendar connection status
+5. **Personal Filtering** → Create calendar events only for your schedule
 6. **Calendar Creation** → Batch creation of work shifts in Google Calendar
 7. **Confirmation** → Receive success message with calendar event details
+
+*Note: If not authenticated, you'll be prompted to use `/calendar` command first*
 
 ## 🛠️ Tech Stack
 
