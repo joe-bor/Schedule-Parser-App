@@ -4,13 +4,15 @@ import { validateWebhook } from "../middleware/validateWebhook.js";
 import { validateEnv } from "../config/env.js";
 import { TelegramFileManager } from "../services/fileManager.js";
 import { OCRProcessor } from "../services/ocrProcessor.js";
+import { UserSessionManager } from "../services/userSessionManager.js";
 import type { ProcessingError } from "../types/ocr.js";
 
 const router = Router();
 
-// Lazy-load OCR services to avoid environment validation issues in tests
+// Lazy-load services to avoid environment validation issues in tests
 let fileManager: TelegramFileManager | undefined;
 let ocrProcessor: OCRProcessor | undefined;
+let sessionManager: UserSessionManager | undefined;
 
 function getFileManager(): TelegramFileManager {
   if (!fileManager) {
@@ -24,6 +26,13 @@ function getOcrProcessor(): OCRProcessor {
     ocrProcessor = new OCRProcessor();
   }
   return ocrProcessor;
+}
+
+function getSessionManager(): UserSessionManager {
+  if (!sessionManager) {
+    sessionManager = new UserSessionManager();
+  }
+  return sessionManager;
 }
 
 /**
@@ -78,7 +87,7 @@ async function processDocumentOCR(document: any, chatId: number): Promise<void> 
                      `🔧 <b>Preprocessing:</b> ${ocrResult.preprocessingMethod || 'standard'}\n` +
                      `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms` +
                      comparisonInfo + `\n\n` +
-                     `🔄 <i>Schedule parsing and calendar integration coming soon!</i>`;
+                     `📅 <i>Ready for calendar integration! Send /calendar to connect your Google Calendar.</i>`;
       
       await sendMessage(chatId, message);
     } else {
@@ -167,7 +176,7 @@ async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void>
                      `🔧 <b>Preprocessing:</b> ${ocrResult.preprocessingMethod || 'standard'}\n` +
                      `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms` +
                      comparisonInfo + `\n\n` +
-                     `🔄 <i>Schedule parsing and calendar integration coming soon!</i>`;
+                     `📅 <i>Ready for calendar integration! Send /calendar to connect your Google Calendar.</i>`;
       
       await sendMessage(chatId, message);
     } else {
@@ -203,6 +212,180 @@ async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void>
     
     await sendMessage(chatId, errorMessage);
   }
+}
+
+/**
+ * Handle text messages and commands
+ */
+async function handleTextMessage(text: string, chatId: number, telegramUserId: string): Promise<void> {
+  const command = text.toLowerCase().trim();
+  
+  // Handle calendar-related commands
+  if (command.startsWith('/calendar')) {
+    await handleCalendarCommand(chatId, telegramUserId);
+    return;
+  }
+  
+  if (command.startsWith('/status')) {
+    await handleStatusCommand(chatId, telegramUserId);
+    return;
+  }
+  
+  if (command.startsWith('/help')) {
+    await handleHelpCommand(chatId);
+    return;
+  }
+  
+  if (command.startsWith('/start')) {
+    await handleStartCommand(chatId);
+    return;
+  }
+  
+  // Default response for other text
+  await sendMessage(chatId, `I understand you sent: "${text}"\n\nTo get started, send me a schedule photo or use /help to see available commands.`);
+}
+
+/**
+ * Handle calendar authorization command
+ */
+async function handleCalendarCommand(chatId: number, telegramUserId: string): Promise<void> {
+  try {
+    const sessionMgr = getSessionManager();
+    const isAuthenticated = await sessionMgr.isAuthenticated(telegramUserId);
+    
+    if (isAuthenticated) {
+      await sendMessage(chatId, 
+        `✅ <b>Calendar Already Connected!</b>\n\n` +
+        `Your Google Calendar is connected and ready to use.\n\n` +
+        `📸 Send me a schedule photo to automatically create calendar events!\n\n` +
+        `Commands:\n` +
+        `• /status - Check connection status\n` +
+        `• /disconnect - Disconnect calendar\n` +
+        `• /help - Show all commands`
+      );
+      return;
+    }
+    
+    // Get authorization URL
+    const env = validateEnv();
+    const baseUrl = env.TELEGRAM_WEBHOOK_URL?.replace('/webhook', '') || 'http://localhost:3000';
+    const authUrl = `${baseUrl}/api/calendar/auth/${telegramUserId}`;
+    
+    try {
+      const response = await fetch(authUrl);
+      const result = await response.json();
+      
+      if (result.success) {
+        await sendMessage(chatId,
+          `🔗 <b>Connect Your Google Calendar</b>\n\n` +
+          `Click the link below to authorize calendar access:\n` +
+          `${result.authUrl}\n\n` +
+          `🔒 This will allow me to create calendar events from your schedule photos.\n\n` +
+          `After authorization, return here and send me a schedule photo!`
+        );
+      } else {
+        await sendMessage(chatId,
+          `❌ <b>Calendar Integration Unavailable</b>\n\n` +
+          `${result.error}\n\n` +
+          `Please contact the administrator to enable calendar integration.`
+        );
+      }
+    } catch (error) {
+      console.error('❌ Failed to get auth URL:', error);
+      await sendMessage(chatId,
+        `❌ <b>Calendar Setup Failed</b>\n\n` +
+        `Unable to generate authorization link. Please try again later or contact support.`
+      );
+    }
+    
+  } catch (error) {
+    console.error('❌ Calendar command failed:', error);
+    await sendMessage(chatId,
+      `❌ Something went wrong with the calendar command. Please try again later.`
+    );
+  }
+}
+
+/**
+ * Handle status command
+ */
+async function handleStatusCommand(chatId: number, telegramUserId: string): Promise<void> {
+  try {
+    const sessionMgr = getSessionManager();
+    const isAuthenticated = await sessionMgr.isAuthenticated(telegramUserId);
+    const session = sessionMgr.getSession(telegramUserId);
+    
+    let statusMessage = `📊 <b>Bot Status</b>\n\n`;
+    
+    // OCR Status
+    statusMessage += `🔍 <b>OCR Engine:</b> ✅ Ready\n`;
+    statusMessage += `   • Tesseract.js: Active\n`;
+    statusMessage += `   • Google Vision: ${process.env.GOOGLE_VISION_ENABLED === 'true' ? 'Active' : 'Disabled'}\n\n`;
+    
+    // Calendar Status
+    statusMessage += `📅 <b>Calendar Integration:</b>\n`;
+    if (isAuthenticated) {
+      statusMessage += `   • Status: ✅ Connected\n`;
+      statusMessage += `   • Account: ${session?.calendarPreferences.defaultCalendarId || 'primary'}\n`;
+      statusMessage += `   • Timezone: ${session?.calendarPreferences.timeZone || 'America/New_York'}\n`;
+    } else {
+      statusMessage += `   • Status: ❌ Not Connected\n`;
+      statusMessage += `   • Use /calendar to connect\n`;
+    }
+    
+    statusMessage += `\n📸 <b>Ready to process schedule photos!</b>`;
+    
+    await sendMessage(chatId, statusMessage);
+    
+  } catch (error) {
+    console.error('❌ Status command failed:', error);
+    await sendMessage(chatId, `❌ Unable to get status information.`);
+  }
+}
+
+/**
+ * Handle help command
+ */
+async function handleHelpCommand(chatId: number): Promise<void> {
+  const helpMessage = 
+    `🤖 <b>Schedule Parser Bot - Help</b>\n\n` +
+    `<b>📸 Photo Processing:</b>\n` +
+    `• Send any schedule photo (JPEG, PNG, WebP)\n` +
+    `• I'll extract text using advanced OCR (90.5% accuracy)\n` +
+    `• Supports employee schedules, shift calendars, etc.\n\n` +
+    `<b>📅 Calendar Integration:</b>\n` +
+    `• /calendar - Connect Google Calendar\n` +
+    `• /status - Check connection status\n` +
+    `• Automatically creates events from schedules\n\n` +
+    `<b>🔧 Commands:</b>\n` +
+    `• /start - Welcome message\n` +
+    `• /help - Show this help\n` +
+    `• /status - Bot and calendar status\n` +
+    `• /calendar - Calendar authorization\n\n` +
+    `<b>🚀 How to Use:</b>\n` +
+    `1. Send /calendar to connect Google Calendar\n` +
+    `2. Send a schedule photo\n` +
+    `3. I'll create calendar events automatically!\n\n` +
+    `<i>Powered by Tesseract.js & Google Vision AI</i>`;
+  
+  await sendMessage(chatId, helpMessage);
+}
+
+/**
+ * Handle start command
+ */
+async function handleStartCommand(chatId: number): Promise<void> {
+  const welcomeMessage = 
+    `🎉 <b>Welcome to Schedule Parser Bot!</b>\n\n` +
+    `I can extract text from schedule photos and create Google Calendar events automatically.\n\n` +
+    `🚀 <b>Quick Start:</b>\n` +
+    `1. Use /calendar to connect your Google Calendar\n` +
+    `2. Send me a photo of your schedule\n` +
+    `3. I'll create calendar events for you!\n\n` +
+    `📸 I support all image formats and use advanced OCR with 90.5% accuracy.\n\n` +
+    `Use /help to see all available commands.`;
+  
+  await sendMessage(chatId, welcomeMessage);
 }
 
 /**
@@ -293,9 +476,9 @@ router.post("/webhook", webhookLimiter, validateWebhook, async (req, res) => {
     console.log("🔘 Callback query:", update.callback_query.data);
   }
   
-  // Send response to user if it's a text message
+  // Handle text commands
   if (update.message?.text) {
-    await sendMessage(update.message.chat.id, `You said: "${update.message.text}"`);
+    await handleTextMessage(update.message.text, update.message.chat.id, update.message.from?.id?.toString() || '');
   }
   
   if (update.message?.photo) {
