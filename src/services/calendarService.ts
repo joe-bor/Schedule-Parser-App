@@ -279,10 +279,18 @@ export class CalendarService {
     try {
       const calendar = await this.getCalendarClient(userTokens);
       
+      // Ensure datetime strings have timezone info for API call
+      const timeMin = startDateTime.includes('T') && !startDateTime.includes('Z') && !startDateTime.includes('+') && !startDateTime.includes('-')
+        ? `${startDateTime}-07:00` // Add Pacific timezone offset
+        : startDateTime;
+      const timeMax = endDateTime.includes('T') && !endDateTime.includes('Z') && !endDateTime.includes('+') && !endDateTime.includes('-')
+        ? `${endDateTime}-07:00` // Add Pacific timezone offset  
+        : endDateTime;
+
       const response = await calendar.events.list({
         calendarId: this.config.calendarId || 'primary',
-        timeMin: startDateTime,
-        timeMax: endDateTime,
+        timeMin: timeMin,
+        timeMax: timeMax,
         singleEvents: true,
         orderBy: 'startTime'
       });

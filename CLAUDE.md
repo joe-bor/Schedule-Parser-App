@@ -313,10 +313,15 @@ File Download → Text Extraction → Employee Data → Joezari Events → Calen
 1. **Photo Upload**: User sends schedule photo to Telegram bot
 2. **OCR Processing**: Multi-engine text extraction (90.5% accuracy)
 3. **Schedule Parsing**: Extract all employee schedules and work shifts
-4. **Personal Filtering**: Create calendar events only for Joezari Borlongan
-5. **OAuth Flow**: One-time Google Calendar authentication (if not already authenticated)
+4. **Authentication Check**: Verify user's Google Calendar connection status
+5. **Personal Filtering**: Create calendar events only for Joezari Borlongan
 6. **Calendar Creation**: Batch creation of work shifts in Google Calendar
 7. **Confirmation**: User receives success message with calendar event details
+
+**Alternative Flow (Not Authenticated)**:
+- Steps 1-3 same as above
+- **Prompt**: User receives message to use `/calendar` command for OAuth setup
+- User must authenticate and re-upload schedule for calendar integration
 
 ### 🔑 **Key Features**:
 - **Smart Extraction**: Processes entire team schedule but creates personal events only

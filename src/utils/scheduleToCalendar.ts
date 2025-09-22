@@ -80,7 +80,7 @@ export interface ConversionResult {
 }
 
 export const DEFAULT_CONVERSION_OPTIONS: ScheduleToCalendarOptions = {
-  timeZone: 'America/New_York',
+  timeZone: 'America/Los_Angeles',
   includeAllEmployees: true,
   selectedEmployees: [],
   selectedDepartments: [],
@@ -96,7 +96,7 @@ export const DEFAULT_CONVERSION_OPTIONS: ScheduleToCalendarOptions = {
 export const PERSONAL_CONVERSION_OPTIONS: ScheduleToCalendarOptions = {
   timeZone: 'America/Los_Angeles',
   includeAllEmployees: false,
-  selectedEmployees: ['Joezari Borlongan'], // Only create events for your schedule
+  selectedEmployees: ['Joezari Borlongan', 'BORLONGAN, JOEZARI'], // Handle both name formats
   selectedDepartments: [],
   eventColorByDepartment: true,
   includeEmployeeInTitle: false, // Don't need your name in title since it's your calendar
