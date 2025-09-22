@@ -83,7 +83,7 @@ export const GOOGLE_OAUTH_SCOPES = [
 
 export const DEFAULT_CALENDAR_PREFERENCES = {
   defaultCalendarId: 'primary',
-  timeZone: 'America/New_York',
+  timeZone: 'America/Los_Angeles', // West Coast timezone
   reminderMinutes: 15,
   autoCreateEvents: true
 } as const;

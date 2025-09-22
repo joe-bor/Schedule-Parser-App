@@ -61,7 +61,7 @@ export interface BatchCalendarCreationResult {
 
 export interface CalendarConfig {
   calendarId?: string; // Default is 'primary'
-  timeZone?: string; // Default is 'America/New_York'
+  timeZone?: string; // Default is 'America/Los_Angeles'
   sendNotifications?: boolean;
   sendUpdates?: 'all' | 'externalOnly' | 'none';
   defaultEventDuration?: number; // Minutes for events without end time
@@ -93,7 +93,7 @@ export interface CalendarQuotaInfo {
 
 export const DEFAULT_CALENDAR_CONFIG: CalendarConfig = {
   calendarId: 'primary',
-  timeZone: 'America/New_York',
+  timeZone: 'America/Los_Angeles',
   sendNotifications: false,
   sendUpdates: 'none',
   defaultEventDuration: 60,
