@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { AuthService } from "../services/authService.js";
 import { CalendarService } from "../services/calendarService.js";
-import { UserSessionManager } from "../services/userSessionManager.js";
+import { getSharedSessionManager } from "../services/sharedSessionManager.js";
 import type { CalendarEventRequest } from "../types/calendar.js";
 
 const router = Router();
@@ -10,7 +10,6 @@ const router = Router();
 // Lazy-load services to avoid environment validation issues in tests
 let authService: AuthService | undefined;
 let calendarService: CalendarService | undefined;
-let sessionManager: UserSessionManager | undefined;
 
 function getAuthService(): AuthService {
   if (!authService) {
@@ -27,10 +26,7 @@ function getCalendarService(): CalendarService {
 }
 
 function getSessionManager(): UserSessionManager {
-  if (!sessionManager) {
-    sessionManager = new UserSessionManager();
-  }
-  return sessionManager;
+  return getSharedSessionManager();
 }
 
 // Validation schemas

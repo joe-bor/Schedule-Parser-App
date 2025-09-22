@@ -4,7 +4,7 @@ import { validateWebhook } from "../middleware/validateWebhook.js";
 import { validateEnv } from "../config/env.js";
 import { TelegramFileManager } from "../services/fileManager.js";
 import { OCRProcessor } from "../services/ocrProcessor.js";
-import { UserSessionManager } from "../services/userSessionManager.js";
+import { getSharedSessionManager } from "../services/sharedSessionManager.js";
 import type { ProcessingError } from "../types/ocr.js";
 import type { ParsedSchedule, Employee } from "../types/schedule.js";
 
@@ -13,7 +13,6 @@ const router = Router();
 // Lazy-load services to avoid environment validation issues in tests
 let fileManager: TelegramFileManager | undefined;
 let ocrProcessor: OCRProcessor | undefined;
-let sessionManager: UserSessionManager | undefined;
 
 function getFileManager(): TelegramFileManager {
   if (!fileManager) {
@@ -30,10 +29,7 @@ function getOcrProcessor(): OCRProcessor {
 }
 
 function getSessionManager(): UserSessionManager {
-  if (!sessionManager) {
-    sessionManager = new UserSessionManager();
-  }
-  return sessionManager;
+  return getSharedSessionManager();
 }
 
 /**
@@ -238,14 +234,19 @@ async function processCalendarIntegration(chatId: number, telegramUserId: string
     }
     
     // Create calendar events
-    await sendMessage(chatId, `📅 <b>Creating Calendar Events...</b>\n\n⏳ Processing ${conversionResult.eventsCount} work shifts...`);
+    await sendMessage(chatId, `📅 <b>Creating Calendar Events...</b>\n\n⏳ Processing ${conversionResult.events.length} work shifts...`);
     
-    const calendarService = new CalendarService();
+    const env = validateEnv();
+    const calendarService = new CalendarService({
+      conflictDetection: env.CALENDAR_CONFLICT_DETECTION,
+      timeZone: env.CALENDAR_DEFAULT_TIMEZONE,
+      batchSize: env.CALENDAR_BATCH_SIZE
+    });
     const result = await calendarService.createMultipleEvents(conversionResult.events, tokens);
     
     if (result.success) {
-      const successCount = result.results?.filter(r => r.success).length || 0;
-      const failureCount = result.results?.filter(r => !r.success).length || 0;
+      const successCount = result.summary.created;
+      const failureCount = result.summary.failed;
       
       let message = `🎉 <b>Calendar Integration Complete!</b>\n\n`;
       message += `✅ <b>Successfully created:</b> ${successCount} events\n`;
@@ -257,7 +258,7 @@ async function processCalendarIntegration(chatId: number, telegramUserId: string
       message += `\n📅 <b>Your Work Schedule:</b>\n`;
       
       // Add summary of created events
-      const createdEvents = result.results?.filter(r => r.success) || [];
+      const createdEvents = result.successfulEvents || [];
       createdEvents.slice(0, 5).forEach((event, index) => {
         const eventRequest = conversionResult.events[index];
         const startTime = new Date(eventRequest.startDateTime).toLocaleDateString('en-US', { 
