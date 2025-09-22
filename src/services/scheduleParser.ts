@@ -129,28 +129,52 @@ export class ScheduleParser {
   private extractWeekInfo(lines: string[]): WeekInfo {
     console.log('📅 Extracting week information from header...');
     
-    // Look for date patterns in first few lines
-    const datePattern = /(\w{3})\s+(\d{2}\/\d{2}\/\d{4})/g;
+    // Look for date patterns in first few lines with multiple formats
     const dates: string[] = [];
     const dayNames: string[] = [];
 
-    for (const line of lines.slice(0, 5)) { // Check first 5 lines
-      let match;
-      while ((match = datePattern.exec(line)) !== null) {
-        const [, dayName, dateStr] = match;
-        if (dayName) dayNames.push(dayName);
-        
-        // Convert MM/DD/YYYY to YYYY-MM-DD
-        if (dateStr) {
-          const dateParts = dateStr.split('/');
-          if (dateParts.length === 3) {
-            const [month, day, year] = dateParts;
+    // Multiple date patterns to try (based on actual schedule format)
+    const patterns = [
+      /(\w{3})\s+(\d{2}\/\d{2}\/\d{4})/g,       // Mon 08/11/2025 (primary format)
+      /(\w{3})\s+(\d{1,2}\/\d{1,2}\/\d{4})/g,   // Mon 8/11/2025 
+      /(\w{3})\s+(\d{1,2}\/\d{1,2})/g,          // Mon 8/11  
+      /(\w{3}day)\s+(\d{1,2}\/\d{1,2})/g,       // Monday 8/11
+      /(\w{3})\s*(\d{1,2}\/\d{1,2})/g,          // Mon8/11 or Mon 8/11
+    ];
+
+    for (const line of lines.slice(0, 10)) { // Check first 10 lines instead of 5
+      console.log(`🔍 Checking line for dates: "${line}"`);
+      
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(line)) !== null) {
+          const [, dayName, dateStr] = match;
+          console.log(`📅 Found potential date: ${dayName} ${dateStr}`);
+          
+          if (dayName) dayNames.push(dayName);
+          
+          // Convert date to YYYY-MM-DD format
+          if (dateStr) {
+            let year, month, day;
+            const dateParts = dateStr.split('/');
+            
+            if (dateParts.length === 2) {
+              // Assume current year for M/D format
+              [month, day] = dateParts;
+              year = '2025'; // Current year
+            } else if (dateParts.length === 3) {
+              [month, day, year] = dateParts;
+            }
+            
             if (month && day && year) {
               const isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
               dates.push(isoDate);
+              console.log(`✅ Parsed date: ${isoDate}`);
             }
           }
         }
+        // Reset regex state
+        pattern.lastIndex = 0;
       }
     }
 
