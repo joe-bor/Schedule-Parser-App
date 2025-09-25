@@ -18,6 +18,7 @@ interface DailySchedule {
   date: string;        // YYYY-MM-DD format
   dayName: string;     // "Monday", "Tuesday", etc.
   timeSlot?: TimeSlot | undefined; // undefined if day off
+  additionalShifts?: TimeSlot[]; // For split shifts (multiple time ranges per day)
   notes?: string;      // Additional info like "Meat Cutter"
 }
 
@@ -207,17 +208,27 @@ export class ScheduleToCalendarConverter {
 
   /**
    * Create a single calendar event from daily schedule
+   * Combines all time segments (primary + additional shifts) into one full work day
    */
   private createCalendarEvent(
     employee: Employee, 
     dailySchedule: DailySchedule, 
     departmentName: string
   ): CalendarEventRequest {
-    const timeSlot = dailySchedule.timeSlot!;
+    const primaryTimeSlot = dailySchedule.timeSlot!;
     
-    // Create ISO 8601 datetime strings
-    const startDateTime = this.createDateTime(dailySchedule.date, timeSlot.start);
-    const endDateTime = this.createDateTime(dailySchedule.date, timeSlot.end);
+    // Combine all time segments to get the full work day span
+    const allTimeSlots = [primaryTimeSlot];
+    if (dailySchedule.additionalShifts) {
+      allTimeSlots.push(...dailySchedule.additionalShifts);
+    }
+    
+    // Find the earliest start time and latest end time for the full work day
+    const { earliestStart, latestEnd, allSegments } = this.combineTimeSegments(allTimeSlots);
+    
+    // Create ISO 8601 datetime strings for the full work day
+    const startDateTime = this.createDateTime(dailySchedule.date, earliestStart);
+    const endDateTime = this.createDateTime(dailySchedule.date, latestEnd);
 
     // Build event title
     let title = '';
@@ -238,10 +249,15 @@ export class ScheduleToCalendarConverter {
       title = `${employee.name} - Work Shift`;
     }
 
-    // Build description
+    // Build description with full work day details
     let description = `Employee: ${employee.name}\n`;
     description += `Department: ${departmentName}\n`;
-    description += `Hours: ${timeSlot.start} - ${timeSlot.end} (${timeSlot.raw})\n`;
+    description += `Full Work Day: ${earliestStart} - ${latestEnd}\n`;
+    
+    if (allSegments.length > 1) {
+      description += `Segments: ${allSegments}\n`;
+    }
+    
     description += `Weekly Total: ${employee.totalHours} hours`;
     
     if (dailySchedule.notes) {
@@ -265,6 +281,53 @@ export class ScheduleToCalendarConverter {
     };
 
     return event;
+  }
+
+  /**
+   * Combine multiple time segments into one full work day
+   * Returns the earliest start time and latest end time
+   */
+  private combineTimeSegments(timeSlots: TimeSlot[]): {
+    earliestStart: string;
+    latestEnd: string;
+    allSegments: string;
+  } {
+    let earliestStart = timeSlots[0].start;
+    let latestEnd = timeSlots[0].end;
+    const segments: string[] = [];
+    
+    for (const slot of timeSlots) {
+      // Compare times (assuming HH:MM format)
+      if (this.compareTime(slot.start, earliestStart) < 0) {
+        earliestStart = slot.start;
+      }
+      
+      if (this.compareTime(slot.end, latestEnd) > 0) {
+        latestEnd = slot.end;
+      }
+      
+      segments.push(`${slot.start}-${slot.end}`);
+    }
+    
+    return {
+      earliestStart,
+      latestEnd,
+      allSegments: segments.join(', ')
+    };
+  }
+
+  /**
+   * Compare two time strings in HH:MM format
+   * Returns -1 if time1 < time2, 0 if equal, 1 if time1 > time2
+   */
+  private compareTime(time1: string, time2: string): number {
+    const [hours1, minutes1] = time1.split(':').map(Number);
+    const [hours2, minutes2] = time2.split(':').map(Number);
+    
+    const totalMinutes1 = hours1 * 60 + minutes1;
+    const totalMinutes2 = hours2 * 60 + minutes2;
+    
+    return totalMinutes1 - totalMinutes2;
   }
 
   /**
