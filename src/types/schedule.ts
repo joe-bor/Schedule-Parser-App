@@ -13,6 +13,7 @@ export interface DailySchedule {
   date: string;        // YYYY-MM-DD format
   dayName: string;     // "Monday", "Tuesday", etc.
   timeSlot?: TimeSlot | undefined; // undefined if day off
+  additionalShifts?: TimeSlot[]; // For split shifts (multiple time ranges per day)
   notes?: string;      // Additional info like "Meat Cutter"
 }
 
