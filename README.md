@@ -1,42 +1,50 @@
 # Schedule Parser Bot
 
-Automated system that converts schedule photos into Google Calendar events via Telegram bot integration.
+Convert your work schedule photos into Google Calendar events automatically through Telegram.
 
 ## 🚀 Features
 
-- **Photo Upload**: Send schedule photos directly to Telegram bot
-- **High-Accuracy OCR**: 90.5% confidence using multi-engine processing (Tesseract.js + Google Vision)
-- **Real OCR Parsing**: 80% accuracy using actual extracted schedule data (not hardcoded)
-- **Smart Filtering**: Extracts all employee data but creates personal calendar events only
-- **Auto Calendar**: Creates Google Calendar events with proper timezone and department colors
-- **One-Click Setup**: OAuth authentication with session management
-- **Production Ready**: Complete end-to-end pipeline with 100% calendar creation success rate
+- **📸 Photo Upload**: Send schedule photos directly to Telegram bot
+- **🔍 Smart OCR**: High-accuracy text extraction using dual OCR engines
+- **📅 Auto Calendar**: Creates Google Calendar events with proper timezones
+- **🎯 Personal Filtering**: Extracts your shifts from team schedules
+- **🔐 Secure OAuth**: One-click Google Calendar authentication
+- **⚡ Fast Processing**: Real-time schedule parsing and event creation
 
 ## 📋 How It Works
 
-1. **Send Photo** → Upload your schedule image to the Telegram bot
-2. **OCR Processing** → Multi-engine text extraction with 90.5% confidence
-3. **Pattern-Based Parsing** → Extract schedule data directly from OCR text (80% real data)
-4. **Authentication Check** → Verify Google Calendar connection status
-5. **Personal Filtering** → Create calendar events only for your schedule
-6. **Calendar Creation** → Batch creation of work shifts in Google Calendar (100% success rate)
-7. **Confirmation** → Receive success message with calendar event details
+```
+📱 Telegram Photo
+        ↓
+🔍 OCR Processing (Tesseract + Google Vision)
+        ↓
+📊 Schedule Parsing (Extract dates, times, shifts)
+        ↓
+🎯 Personal Filtering (Your shifts only)
+        ↓
+🔐 Auth Check (Google Calendar connection)
+        ↓
+📅 Calendar Events (Auto-created with reminders)
+        ↓
+✅ Confirmation (Success message with details)
+```
 
-*Note: If not authenticated, you'll be prompted to use `/calendar` command first*
+**Simple Workflow:**
+1. Send your schedule photo to the bot
+2. Bot extracts and parses your work shifts  
+3. Automatically creates Google Calendar events
+4. Get confirmation with event details
+
+*First time? Use `/calendar` command to connect your Google Calendar*
 
 ## 🛠️ Tech Stack
 
-- **Backend**: Node.js + Express.js + TypeScript
-- **OCR Engines**: 
-  - **Tesseract.js**: Open-source OCR with PSM fallback strategies
-  - **Google Cloud Vision API**: Professional-grade OCR with 90.5% accuracy
-- **Image Processing**: 
-  - **OpenCV.js**: Advanced preprocessing (adaptive thresholding, CLAHE, morphological operations)
-  - **Sharp**: Fast image manipulation and fallback processing
-- **APIs**: Telegram Bot API, Google Calendar API, Google Cloud Vision API
-- **Testing**: Jest with ES modules support
-- **Development**: MCP servers for OpenCV and Tesseract.js documentation
-- **Hosting**: Railway/Render (free tier)
+- **Backend**: Node.js, Express.js, TypeScript
+- **OCR**: Tesseract.js, Google Cloud Vision API
+- **Image Processing**: OpenCV.js, Sharp
+- **APIs**: Telegram Bot API, Google Calendar API
+- **Testing**: Jest
+- **Database**: In-memory session storage
 
 ## 🔧 Prerequisites
 
@@ -47,18 +55,6 @@ Automated system that converts schedule photos into Google Calendar events via T
   - Google Cloud Vision API (for enhanced OCR - optional but recommended)
   - Service account key for Vision API authentication
 - Basic knowledge of JavaScript/Node.js and TypeScript
-
-## 📊 Current Status
-
-**✅ Production Ready** - Complete schedule processing pipeline from Telegram photos to Google Calendar events.
-
-- **90.5% OCR Confidence** - Multi-engine processing with Google Vision fallback
-- **80% Real OCR Parsing** - Uses actual extracted schedule data (not hardcoded patterns)
-- **100% Calendar Success Rate** - All work shifts create valid Google Calendar events
-- **Personal Schedule Filtering** - Extracts all employee data but creates events only for your schedule
-- **Full Integration** - End-to-end workflow from photo upload to calendar creation
-
-For detailed implementation status and development progress, see [CLAUDE.md](./CLAUDE.md).
 
 ## ⚡ Quick Start
 
@@ -160,28 +156,23 @@ For detailed setup instructions, see [GOOGLE_CLOUD_SETUP.md](./GOOGLE_CLOUD_SETU
 ```
 GET /api/health
 ```
-Returns server status and health information.
 
 ### Telegram Integration
 ```
-POST /api/telegram/webhook    # Receives bot updates (photos, messages)
-POST /api/telegram/setup      # Registers webhook URL with Telegram
+POST /api/telegram/webhook    # Bot webhook endpoint
+POST /api/telegram/setup      # Register webhook
 ```
 
 ### Calendar Integration
 ```
-GET  /api/calendar/auth/:telegramUserId           # Generate OAuth URL
-GET  /api/calendar/oauth/callback                 # OAuth callback handler
-POST /api/calendar/events                         # Create single calendar event
-POST /api/calendar/events/batch                   # Create multiple calendar events
-GET  /api/calendar/status/:telegramUserId         # Check authentication status
-GET  /api/calendar/calendars/:telegramUserId      # Get user's calendar list
-DELETE /api/calendar/auth/:telegramUserId         # Revoke calendar access
-```
-
-### Testing Endpoints
-```
-POST /api/calendar/test/personal-schedule         # Test personal schedule filtering
+GET  /api/calendar/auth/:telegramUserId        # OAuth URL
+GET  /api/calendar/oauth/callback              # OAuth callback
+POST /api/calendar/events                      # Create event
+POST /api/calendar/events/batch                # Batch create events
+GET  /api/calendar/status/:telegramUserId      # Auth status
+GET  /api/calendar/calendars/:telegramUserId   # User calendars
+DELETE /api/calendar/auth/:telegramUserId      # Revoke access
+POST /api/calendar/test/personal-schedule      # Test endpoint
 ```
 
 ## 🧪 Development & Testing
@@ -200,7 +191,6 @@ npm test:coverage
 curl -X POST http://localhost:3000/api/calendar/test/personal-schedule
 ```
 
-For detailed development workflows, testing procedures, and project architecture, see [CLAUDE.md](./CLAUDE.md).
 
 ## 📋 License
 
