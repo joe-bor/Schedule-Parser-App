@@ -77,11 +77,12 @@ export class OCRProcessor {
       // Initialize worker if not already done
       await this.initializeWorker(config);
       
-      // Choose preprocessing method based on config
+      // Choose preprocessing method based on config and environment
       let processedBuffer: Buffer;
       let preprocessingMethod = 'sharp';
+      const env = validateEnv();
       
-      if (config.useAdvancedPreprocessing) {
+      if (config.useAdvancedPreprocessing && env.OPENCV_ENABLED) {
         try {
           console.log('🔧 Using advanced OpenCV preprocessing...');
           const isOpenCVReady = await this.advancedProcessor.isOpenCVReady();
@@ -211,7 +212,10 @@ export class OCRProcessor {
    */
   private async performOCRWithFallback(processedBuffer: Buffer, config: OCRConfig): Promise<OCRResult> {
     // Try primary PSM mode (SPARSE_TEXT) first - best for schedules
-    const primaryResult = await this.worker!.recognize(processedBuffer);
+    const primaryResult = await this.performOCRWithTimeout(
+      () => this.worker!.recognize(processedBuffer), 
+      15000 // 15 second timeout
+    );
     const primaryConfidence = primaryResult.data.confidence / 100;
     
     console.log(`🎯 Primary OCR (PSM 11): ${(primaryConfidence * 100).toFixed(1)}% confidence`);
@@ -248,7 +252,10 @@ export class OCRProcessor {
           tessedit_pageseg_mode: fallback.mode as any
         });
         
-        const fallbackResult = await this.worker!.recognize(processedBuffer);
+        const fallbackResult = await this.performOCRWithTimeout(
+          () => this.worker!.recognize(processedBuffer),
+          10000 // 10 second timeout for fallback modes
+        );
         const fallbackConfidence = fallbackResult.data.confidence / 100;
         
         console.log(`     Result: ${(fallbackConfidence * 100).toFixed(1)}% confidence`);
@@ -284,6 +291,27 @@ export class OCRProcessor {
     
     console.log(`🏆 Final result: ${(bestResult.confidence * 100).toFixed(1)}% confidence`);
     return bestResult;
+  }
+
+  /**
+   * Perform OCR operation with timeout to prevent hanging
+   */
+  private async performOCRWithTimeout<T>(operation: () => Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`OCR operation timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      operation()
+        .then((result) => {
+          clearTimeout(timeout);
+          resolve(result);
+        })
+        .catch((error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+    });
   }
 
   private async initializeWorker(config: OCRConfig): Promise<void> {
