@@ -7,6 +7,9 @@ import { apiLimiter } from "./middleware/rateLimiter.js";
 const createApp = (): Application => {
   const app = express();
 
+  // Trust proxy for nginx reverse proxy
+  app.set('trust proxy', true);
+
   // Security middleware
   app.use(helmet());
 

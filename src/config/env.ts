@@ -31,6 +31,12 @@ export const envSchema = z.object({
     .default("true")
     .transform((val) => val === "true"),
 
+  // OCR Configuration
+  OPENCV_ENABLED: z
+    .string()
+    .default("true")
+    .transform((val) => val === "true"),
+
   // Google Cloud Vision (optional for enhanced OCR)
   GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(), // Path to service account key file
