@@ -124,43 +124,13 @@ export class ScheduleParser {
   }
 
   /**
-   * Extract week information using hardcoded Aug 11-17, 2025 dates
-   * Pattern-based approach that handles OCR fragmentation
+   * Extract week information from OCR text
+   * Dynamically parses dates from any schedule
    */
   private extractWeekInfo(lines: string[]): WeekInfo {
-    console.log('📅 Extracting week information using pattern matching...');
+    console.log('📅 Extracting week information from OCR text...');
     
-    // Hardcoded correct dates based on user's schedule (Aug 11-17, 2025)
-    const correctDates = [
-      '2025-08-11', // Monday
-      '2025-08-12', // Tuesday  
-      '2025-08-13', // Wednesday
-      '2025-08-14', // Thursday
-      '2025-08-15', // Friday
-      '2025-08-16', // Saturday
-      '2025-08-17'  // Sunday
-    ];
-    
-    // Look for Aug or August patterns in OCR to verify this is the right week
-    const hasAugustPattern = lines.some(line => {
-      const lowerLine = line.toLowerCase();
-      return lowerLine.includes('aug') || 
-             lowerLine.includes('8/11') || 
-             lowerLine.includes('08/11') ||
-             lowerLine.includes('8/17') ||
-             lowerLine.includes('08/17');
-    });
-    
-    if (hasAugustPattern) {
-      console.log('✅ Found August pattern in OCR - using Aug 11-17, 2025 dates');
-      return {
-        weekStart: correctDates[0],
-        weekEnd: correctDates[6],
-        dates: correctDates
-      };
-    }
-    
-    // Try to extract dates from OCR anyway and see if we get reasonable results
+    // Try to extract dates from OCR first
     const extractedDates = this.tryExtractDatesFromOCR(lines);
     
     if (extractedDates.length >= 7) {
@@ -172,12 +142,20 @@ export class ScheduleParser {
       };
     }
     
-    // Fallback: Use the correct hardcoded dates
-    console.warn('⚠️ Could not extract reliable dates from OCR, using hardcoded Aug 11-17, 2025');
+    // If OCR extraction fails, try to find week patterns
+    const weekPattern = this.findWeekPattern(lines);
+    if (weekPattern) {
+      console.log('📅 Found week pattern, generating dates:', weekPattern);
+      return weekPattern;
+    }
+    
+    // Fallback: Generate current week dates
+    const fallbackDates = this.generateCurrentWeekDates();
+    console.warn('⚠️ Could not extract dates from OCR, using current week fallback:', fallbackDates);
     return {
-      weekStart: correctDates[0],
-      weekEnd: correctDates[6],
-      dates: correctDates
+      weekStart: fallbackDates[0],
+      weekEnd: fallbackDates[6],
+      dates: fallbackDates
     };
   }
 
@@ -228,6 +206,103 @@ export class ScheduleParser {
         }
         pattern.lastIndex = 0; // Reset regex state
       }
+    }
+    
+    return dates;
+  }
+
+  /**
+   * Find week pattern in OCR text (e.g., "Week of Aug 11-17")
+   */
+  private findWeekPattern(lines: string[]): WeekInfo | null {
+    const weekPatterns = [
+      /week\s+of\s+(\w{3})\s+(\d{1,2})\s*-\s*(\d{1,2}),?\s*(\d{4})/i,
+      /(\w{3})\s+(\d{1,2})\s*-\s*(\d{1,2}),?\s*(\d{4})/i,
+      /week\s+(\d{1,2}\/\d{1,2})\s*-\s*(\d{1,2}\/\d{1,2})/i
+    ];
+
+    for (const line of lines.slice(0, 10)) {
+      for (const pattern of weekPatterns) {
+        const match = pattern.exec(line);
+        if (match) {
+          console.log(`📅 Found week pattern: ${match[0]}`);
+          
+          // Try to parse the dates and generate a week
+          const startDate = this.parseWeekStartDate(match);
+          if (startDate) {
+            return this.generateWeekFromStartDate(startDate);
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Parse week start date from regex match
+   */
+  private parseWeekStartDate(match: RegExpExecArray): Date | null {
+    try {
+      if (match[1] && match[2] && match[4]) {
+        // "Aug 11-17, 2025" format
+        const monthName = match[1];
+        const startDay = parseInt(match[2]);
+        const year = parseInt(match[4]);
+        
+        const monthMap: { [key: string]: number } = {
+          jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+          jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+        };
+        
+        const month = monthMap[monthName.toLowerCase()];
+        if (month !== undefined) {
+          return new Date(year, month, startDay);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to parse week start date:', error);
+    }
+    
+    return null;
+  }
+
+  /**
+   * Generate a full week from start date
+   */
+  private generateWeekFromStartDate(startDate: Date): WeekInfo {
+    const dates: string[] = [];
+    
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i);
+      dates.push(date.toISOString().split('T')[0]);
+    }
+    
+    return {
+      weekStart: dates[0],
+      weekEnd: dates[6],
+      dates
+    };
+  }
+
+  /**
+   * Generate current week dates as fallback
+   */
+  private generateCurrentWeekDates(): string[] {
+    const today = new Date();
+    const monday = new Date(today);
+    
+    // Get Monday of current week
+    const dayOfWeek = today.getDay();
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    monday.setDate(today.getDate() - daysToMonday);
+    
+    const dates: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + i);
+      dates.push(date.toISOString().split('T')[0]);
     }
     
     return dates;
