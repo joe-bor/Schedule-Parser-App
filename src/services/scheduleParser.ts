@@ -175,9 +175,10 @@ export class ScheduleParser {
       /(\d{1,2}\/\d{1,2})/g,                    // 8/11 (date only)
     ];
 
-    for (const line of lines.slice(0, 15)) {
+    // Check first 30 lines for date headers (column headers might be further down)
+    for (const line of lines.slice(0, 30)) {
       console.log(`🔍 Checking line for dates: "${line}"`);
-      
+
       for (const pattern of patterns) {
         let match;
         while ((match = pattern.exec(line)) !== null) {
@@ -721,12 +722,23 @@ export class ScheduleParser {
       });
     }
     
-    // Set proper dates from weekInfo
+    // Set proper dates from weekInfo and verify assignment
+    console.log(`📅 Assigning extracted dates to ${employee.name}'s schedule...`);
     employee.weeklySchedule.forEach((dailySchedule, dayIndex) => {
-      if (weekInfo.dates[dayIndex]) {
-        dailySchedule.date = weekInfo.dates[dayIndex];
+      const extractedDate = weekInfo.dates[dayIndex];
+      if (extractedDate) {
+        dailySchedule.date = extractedDate;
+        const dayName = this.getDayName(dayIndex);
+        const timeInfo = dailySchedule.timeSlot ? `${dailySchedule.timeSlot.start}-${dailySchedule.timeSlot.end}` : 'OFF';
+        console.log(`   ✓ ${dayName} ${extractedDate}: ${timeInfo}`);
+      } else {
+        console.warn(`   ⚠️ Missing date for day index ${dayIndex}`);
       }
     });
+
+    // Verify all dates were assigned correctly
+    const assignedDates = employee.weeklySchedule.map(d => d.date).filter(Boolean);
+    console.log(`✅ Assigned ${assignedDates.length}/7 dates to ${employee.name}'s schedule`);
   }
 
   /**
