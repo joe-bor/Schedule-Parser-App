@@ -256,21 +256,35 @@ async function processCalendarIntegration(chatId: number, telegramUserId: string
       }
       
       message += `\n📅 <b>Your Work Schedule:</b>\n`;
-      
-      // Add summary of created events
+
+      // Add summary of created events with full date details
       const createdEvents = result.successfulEvents || [];
       createdEvents.slice(0, 5).forEach((event, index) => {
         const eventRequest = conversionResult.events[index];
-        const startTime = new Date(eventRequest.startDateTime).toLocaleDateString('en-US', { 
-          weekday: 'short', 
-          month: 'short', 
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit'
+
+        // Parse the start and end datetime to show date and time clearly
+        const startDate = new Date(eventRequest.startDateTime);
+        const endDate = new Date(eventRequest.endDateTime);
+
+        const dateStr = startDate.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: '2-digit'
         });
-        message += `   🕐 ${startTime} - ${eventRequest.summary}\n`;
+
+        const timeStr = `${startDate.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        })} - ${endDate.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        })}`;
+
+        message += `   🕐 ${dateStr}: ${timeStr}\n`;
       });
-      
+
       if (createdEvents.length > 5) {
         message += `   ... and ${createdEvents.length - 5} more events\n`;
       }
@@ -308,10 +322,10 @@ async function processCalendarIntegration(chatId: number, telegramUserId: string
  */
 async function sendScheduleResults(chatId: number, scheduleResult: any): Promise<void> {
   const { ocr, schedule, validation } = scheduleResult;
-  
+
   // Create header with OCR info
   let message = `✅ <b>Schedule Parsing Complete!</b> 📅\n\n`;
-  
+
   // Add OCR metadata
   message += `🎯 <b>OCR Confidence:</b> ${(ocr.confidence * 100).toFixed(1)}%\n`;
   message += `🤖 <b>Engine:</b> ${ocr.engine || 'tesseract'}`;
@@ -319,10 +333,21 @@ async function sendScheduleResults(chatId: number, scheduleResult: any): Promise
     message += ` (fallback activated)`;
   }
   message += `\n⏱️ <b>Processing Time:</b> ${ocr.processingTime + schedule.parseMetadata.processingTime}ms\n\n`;
-  
+
+  // Add extracted dates breakdown
+  message += `📅 <b>Extracted Week Dates:</b>\n`;
+  message += `   ${formatDateLong(schedule.weekInfo.weekStart)} - ${formatDateLong(schedule.weekInfo.weekEnd)}\n`;
+
+  // Show all 7 extracted dates
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const extractedDatesPreview = schedule.weekInfo.dates
+    .slice(0, 7)
+    .map((date: string, index: number) => `${dayNames[index]} ${formatDateShort(date)}`)
+    .join(', ');
+  message += `   ${extractedDatesPreview}\n\n`;
+
   // Add schedule summary
   message += `📊 <b>Schedule Summary:</b>\n`;
-  message += `📅 Week: ${formatDate(schedule.weekInfo.weekStart)} - ${formatDate(schedule.weekInfo.weekEnd)}\n`;
   message += `👥 Total Employees: ${schedule.totalEmployees}\n`;
   message += `🏢 Departments: ${Object.keys(schedule.departments).length}\n\n`;
   
@@ -345,17 +370,28 @@ async function sendScheduleResults(chatId: number, scheduleResult: any): Promise
   
   message += `\n`;
   
-  // Add department breakdown
+  // Add department breakdown with specific work schedules
   for (const [deptName, employees] of Object.entries(schedule.departments)) {
     message += `🏢 <b>${deptName} Department</b> (${(employees as Employee[]).length} employees)\n`;
-    
-    for (const employee of (employees as Employee[]).slice(0, 3)) { // Show first 3
-      const workDays = employee.weeklySchedule.filter(day => day.timeSlot).length;
-      message += `   👤 ${employee.name}: ${employee.totalHours}hrs (${workDays} days)\n`;
+
+    for (const employee of (employees as Employee[]).slice(0, 2)) { // Show first 2 with details
+      const workDays = employee.weeklySchedule.filter((day: any) => day.timeSlot);
+      message += `   👤 <b>${employee.name}</b>: ${workDays.length} work days\n`;
+
+      // Show each work day with date and time
+      for (const day of workDays.slice(0, 3)) { // Show first 3 work days
+        const timeSlot = day.timeSlot;
+        if (timeSlot) {
+          message += `      • ${day.dayName.substring(0, 3)} ${formatDateShort(day.date)}: ${timeSlot.start}-${timeSlot.end}\n`;
+        }
+      }
+      if (workDays.length > 3) {
+        message += `      ... and ${workDays.length - 3} more shifts\n`;
+      }
     }
-    
-    if ((employees as Employee[]).length > 3) {
-      message += `   ... and ${(employees as Employee[]).length - 3} more employees\n`;
+
+    if ((employees as Employee[]).length > 2) {
+      message += `   ... and ${(employees as Employee[]).length - 2} more employees\n`;
     }
     message += `\n`;
   }
@@ -377,6 +413,35 @@ async function sendScheduleResults(chatId: number, scheduleResult: any): Promise
  * Format date for display (YYYY-MM-DD -> MM/DD)
  */
 function formatDate(dateStr: string): string {
+  try {
+    const [year, month, day] = dateStr.split('-');
+    return `${month}/${day}`;
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
+ * Format date with full details (YYYY-MM-DD -> Mon, Aug 04, 2025)
+ */
+function formatDateLong(dateStr: string): string {
+  try {
+    const date = new Date(dateStr + 'T00:00:00'); // Avoid timezone issues
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric'
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
+ * Format date short (YYYY-MM-DD -> 08/04)
+ */
+function formatDateShort(dateStr: string): string {
   try {
     const [year, month, day] = dateStr.split('-');
     return `${month}/${day}`;
