@@ -211,24 +211,27 @@ export class ScheduleToCalendarConverter {
    * Combines all time segments (primary + additional shifts) into one full work day
    */
   private createCalendarEvent(
-    employee: Employee, 
-    dailySchedule: DailySchedule, 
+    employee: Employee,
+    dailySchedule: DailySchedule,
     departmentName: string
   ): CalendarEventRequest {
     const primaryTimeSlot = dailySchedule.timeSlot!;
-    
+
     // Combine all time segments to get the full work day span
     const allTimeSlots = [primaryTimeSlot];
     if (dailySchedule.additionalShifts) {
       allTimeSlots.push(...dailySchedule.additionalShifts);
     }
-    
+
     // Find the earliest start time and latest end time for the full work day
     const { earliestStart, latestEnd, allSegments } = this.combineTimeSegments(allTimeSlots);
-    
+
     // Create ISO 8601 datetime strings for the full work day
     const startDateTime = this.createDateTime(dailySchedule.date, earliestStart);
     const endDateTime = this.createDateTime(dailySchedule.date, latestEnd);
+
+    // Log the exact datetime being used for calendar creation
+    console.log(`📅 Creating calendar event: ${employee.name} | ${dailySchedule.dayName} ${dailySchedule.date} | ${startDateTime} to ${endDateTime}`);
 
     // Build event title
     let title = '';
