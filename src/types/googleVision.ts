@@ -20,12 +20,28 @@ export interface GoogleVisionResult {
   processingTime: number;
   blocks?: GoogleVisionBlock[];
   pages?: GoogleVisionPage[];
+  words?: GoogleVisionWord[];
+  tableStructure?: TableStructure;
+}
+
+export interface GoogleVisionWord {
+  text: string;
+  boundingBox: BoundingBox;
+  confidence: number;
+}
+
+export interface GoogleVisionParagraph {
+  text: string;
+  boundingBox: BoundingBox;
+  confidence: number;
+  words: GoogleVisionWord[];
 }
 
 export interface GoogleVisionBlock {
   text: string;
   boundingBox: BoundingBox;
   confidence: number;
+  paragraphs?: GoogleVisionParagraph[];
 }
 
 export interface GoogleVisionPage {
@@ -41,6 +57,30 @@ export interface BoundingBox {
     x: number;
     y: number;
   }>;
+}
+
+export interface TableCell {
+  text: string;
+  boundingBox: BoundingBox;
+  rowIndex: number;
+  columnIndex: number;
+  confidence: number;
+}
+
+export interface TableRow {
+  cells: TableCell[];
+  rowIndex: number;
+  yPosition: number;
+  boundingBox: BoundingBox;
+}
+
+export interface TableStructure {
+  rows: TableRow[];
+  columnCount: number;
+  rowCount: number;
+  dateHeaderRow?: TableRow;
+  employeeNameColumn?: number;
+  confidence: number;
 }
 
 export interface GoogleVisionError {
