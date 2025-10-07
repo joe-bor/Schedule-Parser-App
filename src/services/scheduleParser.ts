@@ -664,6 +664,33 @@ export class ScheduleParser {
   }
 
   /**
+   * Calculate 8-hour shift end time from start time
+   * Accounts for 1-hour lunch break (adds 9 hours total)
+   */
+  private calculate8HourShift(timeSlot: TimeSlot): TimeSlot {
+    // Parse start time to get hours and minutes
+    const [startHour, startMinute] = timeSlot.start.split(':').map(Number);
+
+    // Add 9 hours (8 work + 1 lunch) to calculate end time
+    let endHour = startHour + 9;
+    const endMinute = startMinute;
+
+    // Handle day overflow (if end time goes past midnight)
+    if (endHour >= 24) {
+      endHour -= 24;
+    }
+
+    // Format as HH:MM
+    const formattedEnd = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+
+    return {
+      start: timeSlot.start,
+      end: formattedEnd,
+      raw: `${timeSlot.start}-${formattedEnd} (8h + lunch)`
+    };
+  }
+
+  /**
    * Group employees by department
    */
   private groupEmployeesByDepartment(rowResults: RowParsingResult[]): { [department: string]: Employee[] } {
@@ -1823,87 +1850,87 @@ export class ScheduleParser {
         return false;
       }
 
-      // Build column-to-date mapping
-      const columnDateMap = this.buildColumnDateMap(tableStructure.dateHeaderRow, weekInfo);
-      if (columnDateMap.size === 0) {
-        console.log('⚠️ Could not map columns to dates');
-        return false;
-      }
-
-      console.log(`📅 Mapped ${columnDateMap.size} columns to dates`);
       console.log(`👤 Found employee row at index ${employeeRow.rowIndex}`);
 
-      // Log all cells in employee row for debugging
-      console.log('🔍 Employee row cell contents:');
-      employeeRow.cells.forEach((cell, columnIndex) => {
-        const hasDateMapping = columnDateMap.has(columnIndex);
-        const mappedDate = columnDateMap.get(columnIndex);
-        if (cell.text.trim() || hasDateMapping) {
-          console.log(`   Cell ${columnIndex}: "${cell.text}" | Mapped to: ${mappedDate || 'none'}`);
-        }
-      });
+      // Strategy: Find ALL time patterns in row by scanning entire row
+      console.log('🔍 Scanning entire employee row for time patterns...');
 
-      // Extract time slots from employee row cells
-      // Search adjacent columns (±3) since time data may be in cells next to day names
+      const START_COLUMN = 7;  // Skip name/hours columns
+      const allTimeSlots: Array<{timeSlot: TimeSlot, startCell: number}> = [];
+
+      // Scan entire row with 5-cell sliding window to find ALL time patterns
+      for (let col = START_COLUMN; col < employeeRow.cells.length - 4; col++) {
+        const timeSlot = this.parseTimeSlotFromCellRange(employeeRow.cells, col, col + 5, true);
+
+        if (timeSlot) {
+          // Check if this is a duplicate (same pattern within 4 cells)
+          const isDuplicate = allTimeSlots.some(existing =>
+            Math.abs(existing.startCell - col) < 4
+          );
+
+          if (!isDuplicate) {
+            allTimeSlots.push({timeSlot, startCell: col});
+            console.log(`   📍 Found time pattern at cell ${col}: ${timeSlot.start}-${timeSlot.end}`);
+          }
+        }
+      }
+
+      console.log(`📊 Found ${allTimeSlots.length} time patterns in employee row`);
+
+      // Detect OFF days by looking at gaps in cell positions
+      // Normal gap between consecutive days: ~7-9 cells
+      // Large gap (>12 cells): indicates missing day(s)
+      const dayAssignments: Array<{dayIndex: number, timeSlot: TimeSlot | null}> = [];
+
+      let currentDayIndex = 0;
+      const EXPECTED_CELLS_PER_DAY = 8;  // Average
+      const LARGE_GAP_THRESHOLD = 12;     // Indicates skipped day
+
+      for (let i = 0; i < allTimeSlots.length; i++) {
+        const currentSlot = allTimeSlots[i];
+
+        // Calculate days since start based on cell position
+        const cellsFromStart = currentSlot.startCell - START_COLUMN;
+        const estimatedDayIndex = Math.round(cellsFromStart / EXPECTED_CELLS_PER_DAY);
+
+        // If there's a gap from previous assignment, mark days as OFF
+        while (currentDayIndex < estimatedDayIndex && currentDayIndex < 7) {
+          dayAssignments.push({dayIndex: currentDayIndex, timeSlot: null});
+          currentDayIndex++;
+        }
+
+        // Assign this time slot
+        if (currentDayIndex < 7) {
+          dayAssignments.push({dayIndex: currentDayIndex, timeSlot: currentSlot.timeSlot});
+          currentDayIndex++;
+        }
+      }
+
+      // Fill remaining days as OFF
+      while (currentDayIndex < 7) {
+        dayAssignments.push({dayIndex: currentDayIndex, timeSlot: null});
+        currentDayIndex++;
+      }
+
+      // Apply assignments
       let successCount = 0;
-      const processedDates = new Set<string>();
 
-      columnDateMap.forEach((date, mappedColumn) => {
-        if (processedDates.has(date)) return;
+      for (const {dayIndex, timeSlot} of dayAssignments) {
+        const date = weekInfo.dates[dayIndex];
+        const dayName = this.getDayName(dayIndex);
 
-        // Search from 10 columns before to 3 columns after the mapped column
-        // Time data often appears several cells before the day name column
-        const searchStart = Math.max(0, mappedColumn - 10);
-        const searchEnd = Math.min(employeeRow.cells.length, mappedColumn + 4);
+        employee.weeklySchedule[dayIndex].date = date;
 
-        console.log(`   🔍 Searching columns ${searchStart}-${searchEnd} for ${date}`);
-
-        // Try individual cells first
-        for (let col = searchStart; col < searchEnd; col++) {
-          const cell = employeeRow.cells[col];
-
-          if (!cell || !cell.text.trim()) continue;
-
-          const timeSlot = this.parseTimeSlotFromCell(cell.text);
-
-          if (timeSlot) {
-            // Find the corresponding day index (0-6)
-            const dayIndex = weekInfo.dates.indexOf(date);
-
-            if (dayIndex >= 0 && dayIndex < 7) {
-              const dailySchedule = employee.weeklySchedule[dayIndex];
-              dailySchedule.timeSlot = timeSlot;
-              dailySchedule.date = date;
-
-              const dayName = this.getDayName(dayIndex);
-              console.log(`   ✅ ${dayName} ${date}: ${timeSlot.start}-${timeSlot.end} (from cell ${col})`);
-              successCount++;
-              processedDates.add(date);
-              break; // Found time for this date, stop searching
-            }
-          }
+        if (timeSlot) {
+          // Calculate full 8-hour shift end time if needed
+          const adjustedTimeSlot = this.calculate8HourShift(timeSlot);
+          employee.weeklySchedule[dayIndex].timeSlot = adjustedTimeSlot;
+          console.log(`   ✅ ${dayName} ${date}: ${adjustedTimeSlot.start}-${adjustedTimeSlot.end}`);
+          successCount++;
+        } else {
+          console.log(`   📅 ${dayName} ${date}: OFF`);
         }
-
-        // If not found in individual cells, try combining adjacent cells
-        if (!processedDates.has(date)) {
-          const timeSlot = this.parseTimeSlotFromCellRange(employeeRow.cells, searchStart, searchEnd);
-
-          if (timeSlot) {
-            const dayIndex = weekInfo.dates.indexOf(date);
-
-            if (dayIndex >= 0 && dayIndex < 7) {
-              const dailySchedule = employee.weeklySchedule[dayIndex];
-              dailySchedule.timeSlot = timeSlot;
-              dailySchedule.date = date;
-
-              const dayName = this.getDayName(dayIndex);
-              console.log(`   ✅ ${dayName} ${date}: ${timeSlot.start}-${timeSlot.end} (from combined cells ${searchStart}-${searchEnd})`);
-              successCount++;
-              processedDates.add(date);
-            }
-          }
-        }
-      });
+      }
 
       // Fill in dates for remaining days (mark as OFF)
       employee.weeklySchedule.forEach((dailySchedule, dayIndex) => {
@@ -1986,16 +2013,38 @@ export class ScheduleParser {
 
   /**
    * Parse time slot from table cell text
+   * Now handles split shifts with lunch breaks (e.g., "6:30AM-10:30AM 11:00AM-3:00PM")
    */
   private parseTimeSlotFromCell(cellText: string): TimeSlot | undefined {
     // Look for time patterns in cell - allow flexible whitespace and optional first AM/PM
     // Handles: "6:30 AM-10:30AM", "6:30    AM-10:30 AM", "6:30-10:30AM", "6:30 AM - 10:30 AM"
-    const timePattern = /(\d{1,2}):(\d{2})\s*(AM|PM)?\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i;
-    const match = cellText.match(timePattern);
+    const timePattern = /(\d{1,2}):(\d{2})\s*(AM|PM)?\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
+    const matches = cellText.match(timePattern);
 
-    if (match) {
+    if (matches && matches.length > 0) {
       const warnings: string[] = [];
-      const timeSlot = this.parseTimeSlot(match[0], warnings);
+
+      // Check if this is a split shift (two time ranges found)
+      if (matches.length >= 2) {
+        // Parse both shifts to get start and end times
+        const morningShift = this.parseTimeSlot(matches[0], warnings);
+        const afternoonShift = this.parseTimeSlot(matches[1], warnings);
+
+        if (morningShift && afternoonShift) {
+          // Create combined time slot: start of morning shift to end of afternoon shift
+          const combinedSlot: TimeSlot = {
+            start: morningShift.start,
+            end: afternoonShift.end,
+            raw: `${matches[0]} + ${matches[1]}`
+          };
+
+          console.log(`      🕐 Parsed SPLIT SHIFT from cell "${cellText.substring(0, 50)}": ${combinedSlot.start}-${combinedSlot.end} (${matches[0]} + ${matches[1]})`);
+          return combinedSlot;
+        }
+      }
+
+      // Single time range or fallback
+      const timeSlot = this.parseTimeSlot(matches[0], warnings);
 
       if (timeSlot) {
         console.log(`      🕐 Parsed time from cell "${cellText.substring(0, 30)}": ${timeSlot.start}-${timeSlot.end}`);
@@ -2009,8 +2058,9 @@ export class ScheduleParser {
 
   /**
    * Parse time slot from a range of adjacent cells (for when time data is split across cells)
+   * @param firstOnly - If true, only return the FIRST time range found (prevents combining multiple days)
    */
-  private parseTimeSlotFromCellRange(cells: TableCell[], startCol: number, endCol: number): TimeSlot | undefined {
+  private parseTimeSlotFromCellRange(cells: TableCell[], startCol: number, endCol: number, firstOnly: boolean = false): TimeSlot | undefined {
     // Concatenate text from adjacent cells
     const combinedText = cells
       .slice(startCol, endCol)
@@ -2020,6 +2070,25 @@ export class ScheduleParser {
 
     if (!combinedText) return undefined;
 
+    // If firstOnly, use non-global regex to match only the FIRST time range
+    if (firstOnly) {
+      const timePattern = /(\d{1,2}):(\d{2})\s*(AM|PM)?\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i;
+      const match = combinedText.match(timePattern);
+
+      if (match) {
+        const warnings: string[] = [];
+        const timeSlot = this.parseTimeSlot(match[0], warnings);
+
+        if (timeSlot) {
+          console.log(`   🕐 Extracted FIRST time range: ${timeSlot.start}-${timeSlot.end} from "${combinedText}"`);
+          return timeSlot;
+        }
+      }
+
+      return undefined;
+    }
+
+    // Otherwise, use the full split-shift detection logic
     return this.parseTimeSlotFromCell(combinedText);
   }
 }
