@@ -147,7 +147,8 @@ export class OCRProcessor {
               engine: 'google-vision',
               fallbackUsed: true,
               tesseractResult,
-              googleVisionResult
+              googleVisionResult,
+              tableStructure: visionOCRResult.tableStructure // Pass through table structure!
             };
             fallbackUsed = true;
           } else {
@@ -397,11 +398,15 @@ export class OCRProcessor {
     }
     
     // Parse the OCR text into structured schedule data
-    const schedule = await this.scheduleParser.parseSchedule(ocrResult.text, {
-      confidence: ocrResult.confidence,
-      processingTime: ocrResult.processingTime,
-      engine: ocrResult.engine || 'tesseract'
-    });
+    const schedule = await this.scheduleParser.parseSchedule(
+      ocrResult.text,
+      {
+        confidence: ocrResult.confidence,
+        processingTime: ocrResult.processingTime,
+        engine: ocrResult.engine || 'tesseract'
+      },
+      ocrResult.tableStructure // Pass table structure if available from Google Vision
+    );
     
     console.log(`📊 Schedule parsed: ${schedule.totalEmployees} employees across ${Object.keys(schedule.departments).length} departments`);
     
