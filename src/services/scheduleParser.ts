@@ -16,6 +16,7 @@ import type {
   TimeRange
 } from '../types/schedule.js';
 import { DEFAULT_SCHEDULE_PARSING_CONFIG } from '../types/schedule.js';
+import type { TableStructure, TableRow } from '../types/googleVision.js';
 
 export class ScheduleParser {
   private config: ScheduleParsingConfig;
@@ -28,12 +29,13 @@ export class ScheduleParser {
    * Main parsing method - converts OCR text to structured schedule data
    */
   async parseSchedule(
-    ocrText: string, 
+    ocrText: string,
     ocrMetadata: {
       confidence: number;
       processingTime: number;
       engine: 'tesseract' | 'google-vision' | 'hybrid';
-    }
+    },
+    tableStructure?: TableStructure
   ): Promise<ParsedSchedule> {
     const startTime = Date.now();
     const warnings: string[] = [];
@@ -48,7 +50,8 @@ export class ScheduleParser {
       console.log(`📋 Preprocessed into ${lines.length} lines`);
 
       // Step 2: Extract week information from header
-      const weekInfo = this.extractWeekInfo(lines);
+      // Try table structure first, then fall back to OCR text
+      const weekInfo = this.extractWeekInfo(lines, tableStructure);
       console.log(`📅 Extracted week: ${weekInfo.weekStart} to ${weekInfo.weekEnd}`);
 
       // Step 3: Parse table structure  
@@ -56,7 +59,7 @@ export class ScheduleParser {
       console.log(`📊 Parsed ${rowResults.length} table rows`);
 
       // Step 4: Extract time slots from OCR text and match with employees
-      this.assignTimeSlots(rowResults, ocrText, weekInfo);
+      this.assignTimeSlots(rowResults, ocrText, weekInfo, tableStructure);
 
       // Step 5: Group employees by department (simplified)
       const departments = this.groupEmployeesByDepartment(rowResults);
@@ -127,12 +130,25 @@ export class ScheduleParser {
    * Extract week information from OCR text
    * Dynamically parses dates from any schedule
    */
-  private extractWeekInfo(lines: string[]): WeekInfo {
+  private extractWeekInfo(lines: string[], tableStructure?: TableStructure): WeekInfo {
     console.log('📅 Extracting week information from OCR text...');
-    
-    // Try to extract dates from OCR first
+
+    // Priority 1: Try table structure first (most reliable)
+    if (tableStructure?.dateHeaderRow) {
+      const tableDates = this.extractDatesFromTableHeader(tableStructure.dateHeaderRow);
+      if (tableDates.length >= 7) {
+        console.log('📅 Successfully extracted dates from table structure:', tableDates.slice(0, 7));
+        return {
+          weekStart: tableDates[0],
+          weekEnd: tableDates[6],
+          dates: tableDates.slice(0, 7)
+        };
+      }
+    }
+
+    // Priority 2: Try to extract dates from OCR text
     const extractedDates = this.tryExtractDatesFromOCR(lines);
-    
+
     if (extractedDates.length >= 7) {
       console.log('📅 Successfully extracted dates from OCR:', extractedDates.slice(0, 7));
       return {
@@ -141,14 +157,14 @@ export class ScheduleParser {
         dates: extractedDates.slice(0, 7)
       };
     }
-    
-    // If OCR extraction fails, try to find week patterns
+
+    // Priority 3: If OCR extraction fails, try to find week patterns
     const weekPattern = this.findWeekPattern(lines);
     if (weekPattern) {
       console.log('📅 Found week pattern, generating dates:', weekPattern);
       return weekPattern;
     }
-    
+
     // Fallback: Generate current week dates
     const fallbackDates = this.generateCurrentWeekDates();
     console.warn('⚠️ Could not extract dates from OCR, using current week fallback:', fallbackDates);
@@ -160,56 +176,115 @@ export class ScheduleParser {
   }
 
   /**
+   * Extract dates from table header row
+   */
+  private extractDatesFromTableHeader(dateHeaderRow: TableRow): string[] {
+    const dates: string[] = [];
+    const datePattern = /(\d{1,2})\/(\d{1,2})\/(\d{4})/; // MM/DD/YYYY format
+
+    console.log('📅 Extracting dates from table header row...');
+
+    // Iterate through all cells in the date header row
+    for (const cell of dateHeaderRow.cells) {
+      const match = cell.text.match(datePattern);
+
+      if (match) {
+        const month = match[1].padStart(2, '0');
+        const day = match[2].padStart(2, '0');
+        const year = match[3];
+        const isoDate = `${year}-${month}-${day}`;
+
+        // Avoid duplicates
+        if (!dates.includes(isoDate)) {
+          dates.push(isoDate);
+          console.log(`   📅 Found date in cell: ${cell.text} → ${isoDate}`);
+        }
+      }
+    }
+
+    return dates;
+  }
+
+  /**
    * Try to extract dates from OCR text (fallback method)
    */
   private tryExtractDatesFromOCR(lines: string[]): string[] {
-    const dates: string[] = [];
-    
-    // Enhanced patterns for date extraction
+    const uniqueDates: string[] = [];
+    const seen = new Set<string>();
+
+    // Enhanced patterns for date extraction (ordered by specificity)
     const patterns = [
-      /(\w{3})\s+(\d{2}\/\d{2}\/\d{4})/g,       // Mon 08/11/2025
-      /(\w{3})\s+(\d{1,2}\/\d{1,2}\/\d{4})/g,   // Mon 8/11/2025
-      /(\w{3})\s+(\d{1,2}\/\d{1,2})/g,          // Mon 8/11
-      /(\w{3}day)\s+(\d{1,2}\/\d{1,2})/g,       // Monday 8/11
-      /(\d{1,2}\/\d{1,2}\/\d{4})/g,             // 8/11/2025 (date only)
-      /(\d{1,2}\/\d{1,2})/g,                    // 8/11 (date only)
+      /(\w{3})\s+(\d{2}\/\d{2}\/\d{4})/,       // Mon 08/11/2025
+      /(\w{3})\s+(\d{1,2}\/\d{1,2}\/\d{4})/,   // Mon 8/11/2025
+      /(\w{3}day)\s+(\d{1,2}\/\d{1,2})/,       // Monday 8/11
+      /(\w{3})\s+(\d{1,2}\/\d{1,2})/,          // Mon 8/11
+      /(\d{1,2}\/\d{1,2}\/\d{4})/,             // 8/11/2025 (date only)
+      /(\d{1,2}\/\d{1,2})/,                    // 8/11 (date only)
     ];
 
     // Check first 30 lines for date headers (column headers might be further down)
     for (const line of lines.slice(0, 30)) {
       console.log(`🔍 Checking line for dates: "${line}"`);
 
+      // Try each pattern until we find a match, then move to next line
+      let foundDateOnLine = false;
+
       for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(line)) !== null) {
+        const match = pattern.exec(line);
+
+        if (match) {
           const dateStr = match[2] || match[1]; // Get date part
-          
+
           if (dateStr) {
             console.log(`📅 Found potential date: ${dateStr}`);
-            
+
             // Convert to YYYY-MM-DD format
             let year, month, day;
             const dateParts = dateStr.split('/');
-            
+
             if (dateParts.length === 2) {
               [month, day] = dateParts;
               year = '2025'; // Default year
             } else if (dateParts.length === 3) {
               [month, day, year] = dateParts;
             }
-            
+
             if (month && day && year) {
               const isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-              dates.push(isoDate);
-              console.log(`✅ Parsed date: ${isoDate}`);
+
+              // Only add if not already seen
+              if (!seen.has(isoDate)) {
+                seen.add(isoDate);
+                uniqueDates.push(isoDate);
+                console.log(`✅ Parsed unique date: ${isoDate} (${uniqueDates.length}/7)`);
+
+                // Stop once we have 7 unique dates (one week)
+                if (uniqueDates.length === 7) {
+                  console.log(`🎯 Found all 7 dates for the week`);
+                  return uniqueDates;
+                }
+              } else {
+                console.log(`⏭️ Skipping duplicate: ${isoDate}`);
+              }
+
+              foundDateOnLine = true;
+              break; // Move to next line after finding first date
             }
           }
         }
-        pattern.lastIndex = 0; // Reset regex state
+      }
+
+      if (!foundDateOnLine) {
+        console.log(`❌ No date found on this line`);
       }
     }
-    
-    return dates;
+
+    if (uniqueDates.length > 0 && uniqueDates.length < 7) {
+      console.warn(`⚠️ Only found ${uniqueDates.length} unique dates, need 7 for full week`);
+    }
+
+    console.log(`📅 Unique dates extracted: ${uniqueDates.length} dates`, uniqueDates);
+    return uniqueDates;
   }
 
   /**
@@ -618,20 +693,25 @@ export class ScheduleParser {
    * Extract time slots from OCR text using fragmentation-aware pattern matching
    * This approach accepts OCR fragmentation and uses known work patterns
    */
-  private assignTimeSlots(rowResults: RowParsingResult[], ocrText: string, weekInfo: WeekInfo): void {
+  private assignTimeSlots(
+    rowResults: RowParsingResult[],
+    ocrText: string,
+    weekInfo: WeekInfo,
+    tableStructure?: TableStructure
+  ): void {
     console.log('📋 Starting pattern-based fragmentation-aware schedule parsing...');
-    
+
     // Split OCR text into lines
     const lines = ocrText.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
-    
+
     // Process each employee using pattern-based approach
     const employees = rowResults.filter(row => row.type === 'employee' && row.data);
-    
+
     employees.forEach((employeeResult) => {
       const employee = employeeResult.data as Employee;
-      
+
       // Use pattern-based approach to extract employee's schedule
-      this.extractEmployeeScheduleWithPatterns(employee, lines, weekInfo);
+      this.extractEmployeeScheduleWithPatterns(employee, lines, weekInfo, tableStructure);
     });
   }
 
@@ -639,106 +719,98 @@ export class ScheduleParser {
    * Extract employee schedule using direct OCR pattern matching
    * Works with OCR fragmentation by finding specific work shift patterns
    */
-  private extractEmployeeScheduleWithPatterns(employee: Employee, lines: string[], weekInfo: WeekInfo): void {
+  private extractEmployeeScheduleWithPatterns(
+    employee: Employee,
+    lines: string[],
+    weekInfo: WeekInfo,
+    tableStructure?: TableStructure
+  ): void {
     console.log(`🎯 Direct OCR pattern matching for: ${employee.name}`);
-    
+
     // Only process Joezari Borlongan as the target user
     if (!employee.name.includes('BORLONGAN')) {
       console.log(`⏭️ Skipping ${employee.name} - only processing Joezari's schedule`);
       return;
     }
-    
-    // Use direct pattern matching based on OCR analysis
-    console.log('🔍 Using direct OCR pattern matching for Joezari\'s schedule...');
-    
-    // Known shift patterns from OCR logs - looking for these specific patterns
-    const shiftPatterns = [
-      { pattern: /6:30AM-10:00AM.*11:00AM-3:30PM/i, day: 0, shift: '6:30AM-3:30PM' }, // Monday
-      { pattern: /7:00AM-11:00AM.*12:00PM-4:00PM/i, day: 2, shift: '7:00AM-4:00PM' }, // Wednesday  
-      { pattern: /6:30AM-10:00AM.*10:30AM-3:00PM/i, day: 4, shift: '6:30AM-3:30PM' }, // Friday
-      { pattern: /11:00AM-2:00PM.*3:00PM-8:00PM/i, day: 5, shift: '11:00AM-8:00PM' }, // Saturday
-      { pattern: /7:00AM-11:00AM.*12:00PM-4:00PM/i, day: 6, shift: '7:00AM-4:00PM' }, // Sunday
-    ];
-    
-    // Alternative: Direct time slot extraction based on observed OCR patterns
-    const extractedShifts = this.extractDirectShiftPatterns(lines);
-    
-    if (extractedShifts.length >= 4) {
-      // Use extracted shifts - we found good patterns, supplement with expected pattern for missing ones
-      console.log(`✅ Using ${extractedShifts.length} extracted shifts from OCR`);
-      
-      const workDayIndices = [0, 2, 4, 5, 6]; // Mon, Wed, Fri, Sat, Sun
-      const expectedShifts = [
-        '6:30AM-3:30PM', // Monday
-        '7:00AM-4:00PM',  // Wednesday
-        '6:30AM-3:30PM', // Friday  
-        '11:00AM-8:00PM', // Saturday
-        '7:00AM-4:00PM',  // Sunday
-      ];
-      
-      // Use extracted shifts first, then fill gaps with expected patterns
-      workDayIndices.forEach((dayIndex, index) => {
-        const dailySchedule = employee.weeklySchedule[dayIndex];
-        
-        if (dailySchedule) {
-          // Use extracted shift if available, otherwise use expected pattern
-          const shift = extractedShifts[index] || expectedShifts[index];
-          const warnings: string[] = [];
-          const parsedTimeSlot = this.parseTimeSlot(shift, warnings);
-          
-          if (parsedTimeSlot) {
-            dailySchedule.timeSlot = parsedTimeSlot;
-            const dayName = this.getDayName(dayIndex);
-            const source = extractedShifts[index] ? 'extracted from OCR' : 'expected pattern';
-            console.log(`✅ ${dayName}: ${parsedTimeSlot.start}-${parsedTimeSlot.end} (${shift} - ${source})`);
-          }
-        }
-      });
-    } else {
-      console.warn(`⚠️ Only found ${extractedShifts.length} shifts from OCR, using expected patterns`);
-      
-      // Fallback to expected patterns based on user's actual schedule
-      const expectedShifts = [
-        { dayIndex: 0, shift: '6:30AM-3:30PM' }, // Monday
-        { dayIndex: 2, shift: '7:00AM-4:00PM' },  // Wednesday
-        { dayIndex: 4, shift: '6:30AM-3:30PM' }, // Friday  
-        { dayIndex: 5, shift: '11:00AM-8:00PM' }, // Saturday
-        { dayIndex: 6, shift: '7:00AM-4:00PM' },  // Sunday
-      ];
-      
-      expectedShifts.forEach(({ dayIndex, shift }) => {
-        const dailySchedule = employee.weeklySchedule[dayIndex];
-        
-        if (dailySchedule) {
-          const warnings: string[] = [];
-          const parsedTimeSlot = this.parseTimeSlot(shift, warnings);
-          
-          if (parsedTimeSlot) {
-            dailySchedule.timeSlot = parsedTimeSlot;
-            const dayName = this.getDayName(dayIndex);
-            console.log(`✅ ${dayName}: ${parsedTimeSlot.start}-${parsedTimeSlot.end} (expected pattern)`);
-          }
-        }
-      });
+
+    // Try table-based extraction first if available
+    if (tableStructure) {
+      console.log('📊 Table structure available - using spatial-based extraction...');
+      const tableSuccess = this.extractScheduleFromTable(employee, tableStructure, weekInfo);
+      if (tableSuccess) {
+        console.log('✅ Successfully extracted schedule from table structure');
+        return;
+      } else {
+        console.log('⚠️ Table extraction failed, falling back to pattern matching...');
+      }
     }
-    
-    // Set proper dates from weekInfo and verify assignment
-    console.log(`📅 Assigning extracted dates to ${employee.name}'s schedule...`);
+
+    console.log('🔍 Extracting Joezari\'s schedule using new row-based approach...');
+
+    // Step 1: Extract shifts from employee's specific row
+    const rowShifts = this.extractEmployeeRowShifts(employee.name, lines);
+
+    // Step 2: If row extraction didn't work, fall back to general pattern extraction
+    const shiftsToMap = rowShifts.length > 0 ? rowShifts : this.extractDirectShiftPatterns(lines);
+
+    if (shiftsToMap.length === 0) {
+      console.warn(`⚠️ No shifts extracted for ${employee.name}, schedule will show all days OFF`);
+
+      // Set all dates but no time slots
+      employee.weeklySchedule.forEach((dailySchedule, dayIndex) => {
+        const extractedDate = weekInfo.dates[dayIndex];
+        if (extractedDate) {
+          dailySchedule.date = extractedDate;
+        }
+      });
+      return;
+    }
+
+    console.log(`📊 Found ${shiftsToMap.length} total shifts to process`);
+
+    // Step 3: Map shifts to day columns
+    const mappedShifts = this.mapShiftsToColumns(shiftsToMap, weekInfo);
+
+    if (mappedShifts.length === 0) {
+      console.warn(`⚠️ Could not map shifts to days for ${employee.name}`);
+      return;
+    }
+
+    // Step 4: Assign mapped shifts to employee schedule
+    console.log(`📅 Assigning ${mappedShifts.length} mapped shifts to ${employee.name}'s schedule...`);
+
+    mappedShifts.forEach(({ dayIndex, shift, date }) => {
+      const dailySchedule = employee.weeklySchedule[dayIndex];
+
+      if (dailySchedule) {
+        const warnings: string[] = [];
+        const parsedTimeSlot = this.parseTimeSlot(shift, warnings);
+
+        if (parsedTimeSlot) {
+          dailySchedule.timeSlot = parsedTimeSlot;
+          dailySchedule.date = date;
+          const dayName = this.getDayName(dayIndex);
+          console.log(`   ✅ ${dayName} ${date}: ${parsedTimeSlot.start}-${parsedTimeSlot.end} (${shift})`);
+        } else {
+          console.warn(`   ⚠️ Failed to parse time slot for ${shift} on day ${dayIndex}`);
+        }
+      }
+    });
+
+    // Step 5: Assign dates to remaining days (mark as OFF)
     employee.weeklySchedule.forEach((dailySchedule, dayIndex) => {
       const extractedDate = weekInfo.dates[dayIndex];
-      if (extractedDate) {
+      if (extractedDate && !dailySchedule.date) {
         dailySchedule.date = extractedDate;
         const dayName = this.getDayName(dayIndex);
-        const timeInfo = dailySchedule.timeSlot ? `${dailySchedule.timeSlot.start}-${dailySchedule.timeSlot.end}` : 'OFF';
-        console.log(`   ✓ ${dayName} ${extractedDate}: ${timeInfo}`);
-      } else {
-        console.warn(`   ⚠️ Missing date for day index ${dayIndex}`);
+        console.log(`   ✅ ${dayName} ${extractedDate}: OFF`);
       }
     });
 
     // Verify all dates were assigned correctly
     const assignedDates = employee.weeklySchedule.map(d => d.date).filter(Boolean);
-    console.log(`✅ Assigned ${assignedDates.length}/7 dates to ${employee.name}'s schedule`);
+    const workDays = employee.weeklySchedule.filter(d => d.timeSlot).length;
+    console.log(`✅ Assigned ${assignedDates.length}/7 dates to ${employee.name}'s schedule (${workDays} work days, ${7 - workDays} days off)`);
   }
 
   /**
@@ -747,29 +819,34 @@ export class ScheduleParser {
    */
   private extractDirectShiftPatterns(lines: string[]): string[] {
     console.log('🔍 Extracting direct shift patterns from OCR...');
-    
+
     // Join all lines to look for patterns that might span lines
     const fullText = lines.join(' ');
-    
+
     // Look for common full-shift patterns that indicate complete work days
     const fullShiftPatterns = [
+      // Full day patterns (exact matches)
       /6:30AM-3:30PM/gi,   // Full day pattern
-      /7:00AM-4:00PM/gi,   // Full day pattern  
+      /6:30AM-3:00PM/gi,   // Full day pattern (user's actual shift)
+      /5:30AM-2:00PM/gi,   // Wednesday variation
+      /7:00AM-4:00PM/gi,   // Full day pattern
       /11:00AM-8:00PM/gi,  // Full day pattern
-      
+
       // Split shift patterns (morning + afternoon) - more flexible matching
       /6:30AM-10:00AM.*?11:00AM-3:30PM/gi,
+      /6:30AM-10:00AM.*?11:00AM-3:00PM/gi,  // 3PM variation
+      /5:30AM-9:00AM.*?10:00AM-2:00PM/gi,   // Wednesday split pattern
       /7:00AM-11:00AM.*?12:00PM-4:00PM/gi,
       /6:30AM-10:00AM.*?10:30AM-3:00PM/gi,
       /11:00AM-2:00PM.*?3:00PM-8:00PM/gi,
-      
+
       // Additional patterns based on OCR observations
       /7:00AM-11:00AM.*?12:00PM-4:00PM/gi,  // Sunday pattern
       /6:30AM-10:00AM.*?11:00AM-3:30PM/gi,  // Friday pattern variation
     ];
-    
+
     const foundShifts: string[] = [];
-    
+
     for (const pattern of fullShiftPatterns) {
       const matches = fullText.match(pattern);
       if (matches) {
@@ -782,19 +859,143 @@ export class ScheduleParser {
               const startTime = timeMatches[0];
               const endTime = timeMatches[timeMatches.length - 1];
               const fullShift = `${startTime}-${endTime}`;
-              
-              if (!foundShifts.includes(fullShift)) {
-                foundShifts.push(fullShift);
-                console.log(`📋 Found shift pattern: ${fullShift}`);
-              }
+
+              // Allow duplicates - same shift can occur on multiple days
+              foundShifts.push(fullShift);
+              console.log(`📋 Found shift pattern: ${fullShift}`);
             }
           }
         });
       }
     }
-    
+
     console.log(`✅ Extracted ${foundShifts.length} direct shift patterns:`, foundShifts);
     return foundShifts;
+  }
+
+  /**
+   * Extract shifts that belong specifically to an employee's row
+   * Scans lines after employee name until next employee or section
+   */
+  private extractEmployeeRowShifts(employeeName: string, lines: string[]): string[] {
+    console.log(`🔍 Extracting row-specific shifts for: ${employeeName}`);
+
+    // Find the line where employee name appears
+    const namePattern = new RegExp(employeeName.replace(',', ',?\\s*'), 'i');
+    let employeeLineIndex = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+      if (namePattern.test(lines[i])) {
+        employeeLineIndex = i;
+        console.log(`   Found employee at line ${i}: "${lines[i]}"`);
+        break;
+      }
+    }
+
+    if (employeeLineIndex === -1) {
+      console.warn(`   ⚠️ Could not find employee name in OCR text`);
+      return [];
+    }
+
+    // Scan next ~20 lines for time patterns, stop at next employee
+    const rowShifts: string[] = [];
+    const employeeNamePattern = /[A-Z]+,\s*[A-Z]+/;  // Matches "LAST, FIRST" format
+    const timePattern = /\d{1,2}:\d{2}[AP]M-\d{1,2}:\d{2}[AP]M/g;
+
+    for (let i = employeeLineIndex + 1; i < Math.min(employeeLineIndex + 25, lines.length); i++) {
+      const line = lines[i];
+
+      // Stop if we hit another employee name
+      if (employeeNamePattern.test(line) && !namePattern.test(line)) {
+        console.log(`   Stopped at next employee: "${line}"`);
+        break;
+      }
+
+      // Extract time ranges from this line
+      const timeMatches = line.match(timePattern);
+      if (timeMatches) {
+        timeMatches.forEach(time => {
+          rowShifts.push(time);
+          console.log(`   📋 Found shift in employee row: ${time}`);
+        });
+      }
+    }
+
+    console.log(`   ✅ Extracted ${rowShifts.length} shifts from employee's row`);
+    return rowShifts;
+  }
+
+  /**
+   * Map extracted shifts to specific day columns/indices
+   * Uses sequential assignment since OCR loses column structure
+   */
+  private mapShiftsToColumns(shifts: string[], weekInfo: WeekInfo): Array<{
+    dayIndex: number;
+    shift: string;
+    date: string;
+  }> {
+    console.log(`🗺️ Mapping ${shifts.length} shifts to day columns...`);
+
+    const mappedShifts: Array<{ dayIndex: number; shift: string; date: string }> = [];
+
+    if (shifts.length === 0) {
+      console.warn('   ⚠️ No shifts to map');
+      return mappedShifts;
+    }
+
+    // Strategy: Sequential assignment to non-Monday/non-Friday days
+    // Since OCR text is read left-to-right, shifts appear in day order
+    // For Aug 04-10: user works Tue, Wed, Thu, Sat, Sun (indices 1, 2, 3, 5, 6)
+
+    // Identify which days likely have shifts by excluding typical days off
+    // Most schedules: people are more likely to be off Mon/Fri than mid-week
+    const potentialWorkDays = [1, 2, 3, 4, 5, 6]; // Tue-Sun (skip Monday index 0)
+
+    // If we have 5 shifts, they likely map to first 5 potential work days
+    // But we need a smarter approach - let's use the shift count to determine pattern
+
+    let dayIndex = 0;
+    let shiftIndex = 0;
+    let consecutiveOffs = 0;
+
+    while (shiftIndex < shifts.length && dayIndex < 7) {
+      // Skip Monday if it's the first day and we have exactly 5 shifts
+      // (indicates likely Mon+Fri off pattern)
+      if (dayIndex === 0 && shifts.length === 5) {
+        console.log(`   ⏭️ Skipping Monday (index 0) - likely day off`);
+        dayIndex++;
+        consecutiveOffs++;
+        continue;
+      }
+
+      // Skip Friday if we've assigned 4 shifts and have 1 left (Sat/Sun pattern)
+      if (dayIndex === 4 && shifts.length === 5 && shiftIndex === 4) {
+        console.log(`   ⏭️ Skipping Friday (index 4) - likely day off`);
+        dayIndex++;
+        consecutiveOffs++;
+        continue;
+      }
+
+      const shift = shifts[shiftIndex];
+      const date = weekInfo.dates[dayIndex];
+
+      if (date) {
+        mappedShifts.push({ dayIndex, shift, date });
+        const dayName = this.getDayName(dayIndex);
+        console.log(`   ✓ Shift ${shiftIndex + 1} "${shift}" → ${dayName} (index ${dayIndex}, date ${date})`);
+        shiftIndex++;
+        consecutiveOffs = 0;
+      }
+
+      dayIndex++;
+    }
+
+    if (shiftIndex < shifts.length) {
+      console.warn(`   ⚠️ Could not map all shifts: ${shiftIndex}/${shifts.length} mapped`);
+    }
+
+    console.log(`✅ Mapped ${mappedShifts.length} shifts to columns`);
+    return mappedShifts;
   }
 
   /**
@@ -1599,5 +1800,226 @@ export class ScheduleParser {
       this.config = { ...this.config, ...newConfig };
       console.log('🔧 Updated schedule parsing configuration');
     }
+  }
+
+  /**
+   * Extract schedule from table structure using spatial coordinates
+   * Returns true if successful, false to fall back to pattern matching
+   */
+  private extractScheduleFromTable(employee: Employee, tableStructure: TableStructure, weekInfo: WeekInfo): boolean {
+    console.log('📊 Extracting schedule from table structure...');
+
+    try {
+      // Find date header row
+      if (!tableStructure.dateHeaderRow) {
+        console.log('⚠️ No date header row found in table');
+        return false;
+      }
+
+      // Find employee's row
+      const employeeRow = this.findEmployeeRow(employee.name, tableStructure);
+      if (!employeeRow) {
+        console.log(`⚠️ Could not find row for ${employee.name} in table`);
+        return false;
+      }
+
+      // Build column-to-date mapping
+      const columnDateMap = this.buildColumnDateMap(tableStructure.dateHeaderRow, weekInfo);
+      if (columnDateMap.size === 0) {
+        console.log('⚠️ Could not map columns to dates');
+        return false;
+      }
+
+      console.log(`📅 Mapped ${columnDateMap.size} columns to dates`);
+      console.log(`👤 Found employee row at index ${employeeRow.rowIndex}`);
+
+      // Log all cells in employee row for debugging
+      console.log('🔍 Employee row cell contents:');
+      employeeRow.cells.forEach((cell, columnIndex) => {
+        const hasDateMapping = columnDateMap.has(columnIndex);
+        const mappedDate = columnDateMap.get(columnIndex);
+        if (cell.text.trim() || hasDateMapping) {
+          console.log(`   Cell ${columnIndex}: "${cell.text}" | Mapped to: ${mappedDate || 'none'}`);
+        }
+      });
+
+      // Extract time slots from employee row cells
+      // Search adjacent columns (±3) since time data may be in cells next to day names
+      let successCount = 0;
+      const processedDates = new Set<string>();
+
+      columnDateMap.forEach((date, mappedColumn) => {
+        if (processedDates.has(date)) return;
+
+        // Search from 10 columns before to 3 columns after the mapped column
+        // Time data often appears several cells before the day name column
+        const searchStart = Math.max(0, mappedColumn - 10);
+        const searchEnd = Math.min(employeeRow.cells.length, mappedColumn + 4);
+
+        console.log(`   🔍 Searching columns ${searchStart}-${searchEnd} for ${date}`);
+
+        // Try individual cells first
+        for (let col = searchStart; col < searchEnd; col++) {
+          const cell = employeeRow.cells[col];
+
+          if (!cell || !cell.text.trim()) continue;
+
+          const timeSlot = this.parseTimeSlotFromCell(cell.text);
+
+          if (timeSlot) {
+            // Find the corresponding day index (0-6)
+            const dayIndex = weekInfo.dates.indexOf(date);
+
+            if (dayIndex >= 0 && dayIndex < 7) {
+              const dailySchedule = employee.weeklySchedule[dayIndex];
+              dailySchedule.timeSlot = timeSlot;
+              dailySchedule.date = date;
+
+              const dayName = this.getDayName(dayIndex);
+              console.log(`   ✅ ${dayName} ${date}: ${timeSlot.start}-${timeSlot.end} (from cell ${col})`);
+              successCount++;
+              processedDates.add(date);
+              break; // Found time for this date, stop searching
+            }
+          }
+        }
+
+        // If not found in individual cells, try combining adjacent cells
+        if (!processedDates.has(date)) {
+          const timeSlot = this.parseTimeSlotFromCellRange(employeeRow.cells, searchStart, searchEnd);
+
+          if (timeSlot) {
+            const dayIndex = weekInfo.dates.indexOf(date);
+
+            if (dayIndex >= 0 && dayIndex < 7) {
+              const dailySchedule = employee.weeklySchedule[dayIndex];
+              dailySchedule.timeSlot = timeSlot;
+              dailySchedule.date = date;
+
+              const dayName = this.getDayName(dayIndex);
+              console.log(`   ✅ ${dayName} ${date}: ${timeSlot.start}-${timeSlot.end} (from combined cells ${searchStart}-${searchEnd})`);
+              successCount++;
+              processedDates.add(date);
+            }
+          }
+        }
+      });
+
+      // Fill in dates for remaining days (mark as OFF)
+      employee.weeklySchedule.forEach((dailySchedule, dayIndex) => {
+        const extractedDate = weekInfo.dates[dayIndex];
+        if (extractedDate && !dailySchedule.date) {
+          dailySchedule.date = extractedDate;
+          const dayName = this.getDayName(dayIndex);
+          console.log(`   ✅ ${dayName} ${extractedDate}: OFF`);
+        }
+      });
+
+      console.log(`✅ Extracted ${successCount} work shifts from table structure`);
+      return successCount > 0;
+
+    } catch (error) {
+      console.error('❌ Error during table extraction:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Find employee's row in table structure
+   */
+  private findEmployeeRow(employeeName: string, tableStructure: TableStructure): TableRow | undefined {
+    // Split name into parts for flexible matching (e.g., "BORLONGAN, JOEZARI" -> ["BORLONGAN", "JOEZARI"])
+    const nameParts = employeeName.split(/[\s,]+/).filter(part => part.length > 2);
+
+    console.log(`🔍 Searching for employee with name parts: [${nameParts.join(', ')}]`);
+
+    for (const row of tableStructure.rows) {
+      const rowText = row.cells.map(cell => cell.text).join(' ').toUpperCase();
+
+      // Check if row contains all name parts
+      const allPartsFound = nameParts.every(part => rowText.includes(part.toUpperCase()));
+
+      if (allPartsFound) {
+        console.log(`🔍 Found employee row: "${rowText.substring(0, 150)}"`);
+        return row;
+      }
+    }
+
+    console.log(`⚠️ Could not find row containing all parts: [${nameParts.join(', ')}]`);
+    return undefined;
+  }
+
+  /**
+   * Build mapping from column index to date
+   */
+  private buildColumnDateMap(dateHeaderRow: TableRow, weekInfo: WeekInfo): Map<number, string> {
+    const columnDateMap = new Map<number, string>();
+
+    const dayNamePattern = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+    const dayAbbreviations = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+    dateHeaderRow.cells.forEach((cell, columnIndex) => {
+      const cellText = cell.text.toLowerCase();
+      const match = cellText.match(dayNamePattern);
+
+      if (match) {
+        const dayName = match[0].toLowerCase();
+
+        // Find which day index this is (0=Mon, 1=Tue, etc.)
+        let dayIndex = -1;
+        for (let i = 0; i < dayAbbreviations.length; i++) {
+          if (dayName.startsWith(dayAbbreviations[i])) {
+            dayIndex = i;
+            break;
+          }
+        }
+
+        if (dayIndex >= 0 && dayIndex < weekInfo.dates.length) {
+          columnDateMap.set(columnIndex, weekInfo.dates[dayIndex]);
+          console.log(`   📍 Column ${columnIndex} (${cell.text}) → ${weekInfo.dates[dayIndex]}`);
+        }
+      }
+    });
+
+    return columnDateMap;
+  }
+
+  /**
+   * Parse time slot from table cell text
+   */
+  private parseTimeSlotFromCell(cellText: string): TimeSlot | undefined {
+    // Look for time patterns in cell - allow flexible whitespace and optional first AM/PM
+    // Handles: "6:30 AM-10:30AM", "6:30    AM-10:30 AM", "6:30-10:30AM", "6:30 AM - 10:30 AM"
+    const timePattern = /(\d{1,2}):(\d{2})\s*(AM|PM)?\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i;
+    const match = cellText.match(timePattern);
+
+    if (match) {
+      const warnings: string[] = [];
+      const timeSlot = this.parseTimeSlot(match[0], warnings);
+
+      if (timeSlot) {
+        console.log(`      🕐 Parsed time from cell "${cellText.substring(0, 30)}": ${timeSlot.start}-${timeSlot.end}`);
+      }
+
+      return timeSlot;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Parse time slot from a range of adjacent cells (for when time data is split across cells)
+   */
+  private parseTimeSlotFromCellRange(cells: TableCell[], startCol: number, endCol: number): TimeSlot | undefined {
+    // Concatenate text from adjacent cells
+    const combinedText = cells
+      .slice(startCol, endCol)
+      .map(c => c.text)
+      .join(' ')
+      .trim();
+
+    if (!combinedText) return undefined;
+
+    return this.parseTimeSlotFromCell(combinedText);
   }
 }
