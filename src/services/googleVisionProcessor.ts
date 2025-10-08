@@ -1,10 +1,14 @@
 import { ImageAnnotatorClient } from '@google-cloud/vision';
-import type { 
-  GoogleVisionConfig, 
-  GoogleVisionResult, 
+import type {
+  GoogleVisionConfig,
+  GoogleVisionResult,
   GoogleVisionError,
   GoogleVisionUsageStats,
-  BoundingBox
+  BoundingBox,
+  GoogleVisionWord,
+  TableStructure,
+  TableRow,
+  TableCell
 } from '../types/googleVision.js';
 import { DEFAULT_GOOGLE_VISION_CONFIG } from '../types/googleVision.js';
 
@@ -122,12 +126,18 @@ export class GoogleVisionProcessor {
       const extractedText = this.extractTextFromResult(result);
       const confidence = this.calculateConfidence(result);
       
+      // Extract words and reconstruct table structure
+      const words = this.extractWords(result);
+      const tableStructure = this.reconstructTable(words);
+
       const visionResult: GoogleVisionResult = {
         text: extractedText,
         confidence,
         processingTime,
         blocks: this.extractBlocks(result),
-        pages: this.extractPages(result)
+        pages: this.extractPages(result),
+        words,
+        tableStructure
       };
 
       this.updateUsageStats('request_success', processingTime);
@@ -465,5 +475,306 @@ export class GoogleVisionProcessor {
   isApproachingQuotaLimit(warningThreshold = 0.8): boolean {
     const freeMonthlyLimit = 1000;
     return this.usageStats.monthlyUsage >= (freeMonthlyLimit * warningThreshold);
+  }
+
+  /**
+   * Extract individual words with bounding boxes from Vision API result
+   */
+  private extractWords(result: any): GoogleVisionWord[] {
+    if (!this.config.useDocumentTextDetection) {
+      return [];
+    }
+
+    const words: GoogleVisionWord[] = [];
+    const pages = result.fullTextAnnotation?.pages || [];
+
+    for (const page of pages) {
+      const blocks = page.blocks || [];
+      for (const block of blocks) {
+        const paragraphs = block.paragraphs || [];
+        for (const paragraph of paragraphs) {
+          const paragraphWords = paragraph.words || [];
+          for (const word of paragraphWords) {
+            const symbols = word.symbols || [];
+            const wordText = symbols.map((s: any) => s.text || '').join('');
+
+            if (wordText.trim()) {
+              words.push({
+                text: wordText,
+                boundingBox: this.convertBoundingBox(word.boundingBox),
+                confidence: word.confidence || paragraph.confidence || block.confidence || 0.95
+              });
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`📝 Extracted ${words.length} words with spatial coordinates`);
+    return words;
+  }
+
+  /**
+   * Reconstruct table structure from words using spatial coordinates
+   */
+  private reconstructTable(words: GoogleVisionWord[]): TableStructure | undefined {
+    if (words.length === 0) {
+      console.log('⚠️ No words to reconstruct table from');
+      return undefined;
+    }
+
+    console.log('🔨 Reconstructing table structure from spatial data...');
+
+    // Group words into rows based on y-coordinate similarity
+    const rowGroups = this.groupWordsIntoRows(words);
+
+    if (rowGroups.length === 0) {
+      console.log('⚠️ No rows identified from words');
+      return undefined;
+    }
+
+    // Identify column boundaries across all rows
+    const columnBoundaries = this.identifyColumnBoundaries(rowGroups);
+
+    if (columnBoundaries.length === 0) {
+      console.log('⚠️ No columns identified');
+      return undefined;
+    }
+
+    // Assign words to cells based on row and column
+    const tableRows = this.assignWordsToCells(rowGroups, columnBoundaries);
+
+    // Find date header row (contains Mon, Tue, Wed, etc.)
+    const dateHeaderRow = this.findDateHeaderRow(tableRows);
+
+    // Estimate employee name column (usually first column)
+    const employeeNameColumn = 0;
+
+    const tableStructure: TableStructure = {
+      rows: tableRows,
+      columnCount: columnBoundaries.length,
+      rowCount: tableRows.length,
+      dateHeaderRow,
+      employeeNameColumn,
+      confidence: 0.9
+    };
+
+    console.log(`✅ Table reconstructed: ${tableRows.length} rows × ${columnBoundaries.length} columns`);
+    if (dateHeaderRow) {
+      console.log(`📅 Date header row found at index ${dateHeaderRow.rowIndex}`);
+    }
+
+    return tableStructure;
+  }
+
+  /**
+   * Group words into rows based on y-coordinate similarity
+   */
+  private groupWordsIntoRows(words: GoogleVisionWord[]): Array<{ words: GoogleVisionWord[]; yPosition: number }> {
+    const ROW_Y_THRESHOLD = 15; // pixels - words within this vertical distance are on same row
+
+    const rows: Array<{ words: GoogleVisionWord[]; yPosition: number }> = [];
+
+    for (const word of words) {
+      const wordY = this.getAverageY(word.boundingBox);
+
+      // Find existing row within threshold
+      const existingRow = rows.find(row => Math.abs(row.yPosition - wordY) < ROW_Y_THRESHOLD);
+
+      if (existingRow) {
+        existingRow.words.push(word);
+        // Update average y position
+        existingRow.yPosition = (existingRow.yPosition * (existingRow.words.length - 1) + wordY) / existingRow.words.length;
+      } else {
+        rows.push({ words: [word], yPosition: wordY });
+      }
+    }
+
+    // Sort rows by y-position (top to bottom)
+    rows.sort((a, b) => a.yPosition - b.yPosition);
+
+    // Sort words within each row by x-position (left to right)
+    rows.forEach(row => {
+      row.words.sort((a, b) => this.getAverageX(a.boundingBox) - this.getAverageX(b.boundingBox));
+    });
+
+    console.log(`📊 Grouped ${words.length} words into ${rows.length} rows`);
+    return rows;
+  }
+
+  /**
+   * Identify column boundaries from row data
+   */
+  private identifyColumnBoundaries(rows: Array<{ words: GoogleVisionWord[]; yPosition: number }>): number[] {
+    const COLUMN_X_THRESHOLD = 30; // pixels - x positions within this are same column
+
+    // Collect all x-positions from all words
+    const allXPositions: number[] = [];
+    for (const row of rows) {
+      for (const word of row.words) {
+        allXPositions.push(this.getAverageX(word.boundingBox));
+      }
+    }
+
+    if (allXPositions.length === 0) {
+      return [];
+    }
+
+    // Sort x positions
+    allXPositions.sort((a, b) => a - b);
+
+    // Find column boundaries by clustering x-positions
+    const columnBoundaries: number[] = [allXPositions[0]];
+
+    for (let i = 1; i < allXPositions.length; i++) {
+      const prevX = columnBoundaries[columnBoundaries.length - 1];
+      const currentX = allXPositions[i];
+
+      if (currentX - prevX > COLUMN_X_THRESHOLD) {
+        columnBoundaries.push(currentX);
+      }
+    }
+
+    console.log(`📐 Identified ${columnBoundaries.length} column boundaries`);
+    return columnBoundaries;
+  }
+
+  /**
+   * Assign words to table cells based on row and column positions
+   */
+  private assignWordsToCells(
+    rows: Array<{ words: GoogleVisionWord[]; yPosition: number }>,
+    columnBoundaries: number[]
+  ): TableRow[] {
+    const COLUMN_ASSIGNMENT_THRESHOLD = 50; // pixels - how close word must be to column boundary
+
+    const tableRows: TableRow[] = [];
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      const row = rows[rowIndex];
+      const cells: TableCell[] = [];
+
+      // Initialize cells for each column
+      for (let colIndex = 0; colIndex < columnBoundaries.length; colIndex++) {
+        cells.push({
+          text: '',
+          boundingBox: { vertices: [] },
+          rowIndex,
+          columnIndex: colIndex,
+          confidence: 0
+        });
+      }
+
+      // Assign words to cells
+      for (const word of row.words) {
+        const wordX = this.getAverageX(word.boundingBox);
+
+        // Find closest column
+        let closestColumnIndex = 0;
+        let minDistance = Math.abs(wordX - columnBoundaries[0]);
+
+        for (let colIndex = 1; colIndex < columnBoundaries.length; colIndex++) {
+          const distance = Math.abs(wordX - columnBoundaries[colIndex]);
+          if (distance < minDistance) {
+            minDistance = distance;
+            closestColumnIndex = colIndex;
+          }
+        }
+
+        // Assign word to cell if within threshold
+        if (minDistance < COLUMN_ASSIGNMENT_THRESHOLD) {
+          const cell = cells[closestColumnIndex];
+          cell.text += (cell.text ? ' ' : '') + word.text;
+          cell.confidence = Math.max(cell.confidence, word.confidence);
+
+          // Expand bounding box
+          if (cell.boundingBox.vertices.length === 0) {
+            cell.boundingBox = word.boundingBox;
+          }
+        }
+      }
+
+      // Calculate row bounding box
+      const rowBoundingBox = this.calculateRowBoundingBox(row.words);
+
+      tableRows.push({
+        cells,
+        rowIndex,
+        yPosition: row.yPosition,
+        boundingBox: rowBoundingBox
+      });
+    }
+
+    return tableRows;
+  }
+
+  /**
+   * Find the date header row (contains day names like Mon, Tue, Wed)
+   */
+  private findDateHeaderRow(tableRows: TableRow[]): TableRow | undefined {
+    const dayPatterns = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+
+    for (const row of tableRows) {
+      const rowText = row.cells.map(cell => cell.text).join(' ').toLowerCase();
+
+      // Count how many day names are in this row
+      const dayMatches = rowText.match(new RegExp(dayPatterns, 'gi'));
+
+      if (dayMatches && dayMatches.length >= 3) {
+        console.log(`📅 Date header row found: "${row.cells.map(c => c.text).join(' | ')}"`);
+        return row;
+      }
+    }
+
+    console.log('⚠️ No date header row found');
+    return undefined;
+  }
+
+  /**
+   * Get average Y coordinate from bounding box
+   */
+  private getAverageY(boundingBox: BoundingBox): number {
+    if (boundingBox.vertices.length === 0) return 0;
+    const sum = boundingBox.vertices.reduce((acc, v) => acc + v.y, 0);
+    return sum / boundingBox.vertices.length;
+  }
+
+  /**
+   * Get average X coordinate from bounding box
+   */
+  private getAverageX(boundingBox: BoundingBox): number {
+    if (boundingBox.vertices.length === 0) return 0;
+    const sum = boundingBox.vertices.reduce((acc, v) => acc + v.x, 0);
+    return sum / boundingBox.vertices.length;
+  }
+
+  /**
+   * Calculate bounding box that encompasses all words in a row
+   */
+  private calculateRowBoundingBox(words: GoogleVisionWord[]): BoundingBox {
+    if (words.length === 0) {
+      return { vertices: [] };
+    }
+
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+
+    for (const word of words) {
+      for (const vertex of word.boundingBox.vertices) {
+        minX = Math.min(minX, vertex.x);
+        minY = Math.min(minY, vertex.y);
+        maxX = Math.max(maxX, vertex.x);
+        maxY = Math.max(maxY, vertex.y);
+      }
+    }
+
+    return {
+      vertices: [
+        { x: minX, y: minY },
+        { x: maxX, y: minY },
+        { x: maxX, y: maxY },
+        { x: minX, y: maxY }
+      ]
+    };
   }
 }
