@@ -28,7 +28,6 @@
     "helmet": "^8.1.0",
     "node-telegram-bot-api": "^0.66.0",
     "sharp": "^0.34.3",
-    "tesseract.js": "^6.0.1",
     "zod": "^4.0.14"
   },
   "devDependencies": {

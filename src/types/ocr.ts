@@ -2,17 +2,11 @@ export interface OCRResult {
   text: string;
   confidence: number;
   processingTime: number;
-  preprocessingMethod?: string;
-  qualityScore?: number;
-  engine?: 'tesseract' | 'google-vision' | 'hybrid';
-  fallbackUsed?: boolean;
-  tesseractResult?: {
-    confidence: number;
-    processingTime: number;
-  };
-  googleVisionResult?: {
-    confidence: number;
-    processingTime: number;
+  engine?: 'google-vision';
+  tableStructure?: {
+    rows: number;
+    columns: number;
+    cells: any[][];
   };
 }
 
@@ -50,11 +44,8 @@ export const DEFAULT_FILE_VALIDATION: FileValidationOptions = {
 };
 
 export const DEFAULT_OCR_CONFIG = {
-  lang: 'eng',
-  minConfidence: 0.8, // High threshold for usable text quality
-  timeoutMs: 30000,
-  useAdvancedPreprocessing: true, // Enable OpenCV preprocessing by default
-  useGoogleVisionFallback: true // Enable Google Vision fallback when confidence is low
+  timeoutMs: 30000, // Google Vision API timeout
+  minConfidence: 0.8 // Minimum acceptable OCR confidence
 } as const;
 
 export type OCRConfig = typeof DEFAULT_OCR_CONFIG;

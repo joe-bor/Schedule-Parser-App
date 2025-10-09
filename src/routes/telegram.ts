@@ -113,18 +113,7 @@ async function processDocumentOCR(document: any, chatId: number): Promise<void> 
     // Send results to user
     if (ocrResult.text.trim().length > 0) {
       // Create engine status message
-      let engineInfo = `🤖 <b>Engine:</b> ${ocrResult.engine || 'tesseract'}`;
-      if (ocrResult.fallbackUsed) {
-        engineInfo += ` (fallback activated)`;
-      }
-      
-      // Add comparison if both engines were used
-      let comparisonInfo = '';
-      if (ocrResult.tesseractResult && ocrResult.googleVisionResult) {
-        comparisonInfo = `\n📊 <b>Comparison:</b>\n` +
-                        `   • Tesseract: ${(ocrResult.tesseractResult.confidence * 100).toFixed(1)}%\n` +
-                        `   • Google Vision: ${(ocrResult.googleVisionResult.confidence * 100).toFixed(1)}%`;
-      }
+      let engineInfo = `🤖 <b>Engine:</b> ${ocrResult.engine || 'google-vision'}`;
       
       // Truncate text if too long for Telegram
       let displayText = ocrResult.text;
@@ -137,9 +126,7 @@ async function processDocumentOCR(document: any, chatId: number): Promise<void> 
                      `📝 <b>Extracted Text:</b>\n<code>${displayText}</code>\n\n` +
                      `🎯 <b>Confidence:</b> ${(ocrResult.confidence * 100).toFixed(1)}%\n` +
                      engineInfo + `\n` +
-                     `🔧 <b>Preprocessing:</b> ${ocrResult.preprocessingMethod || 'standard'}\n` +
-                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms` +
-                     comparisonInfo + `\n\n` +
+                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms\n\n` +
                      `📅 <i>Ready for calendar integration! Send /calendar to connect your Google Calendar.</i>`;
       
       await sendMessage(chatId, message);
@@ -471,18 +458,7 @@ async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void>
     // Send results to user
     if (ocrResult.text.trim().length > 0) {
       // Create engine status message
-      let engineInfo = `🤖 <b>Engine:</b> ${ocrResult.engine || 'tesseract'}`;
-      if (ocrResult.fallbackUsed) {
-        engineInfo += ` (fallback activated)`;
-      }
-      
-      // Add comparison if both engines were used
-      let comparisonInfo = '';
-      if (ocrResult.tesseractResult && ocrResult.googleVisionResult) {
-        comparisonInfo = `\n📊 <b>Comparison:</b>\n` +
-                        `   • Tesseract: ${(ocrResult.tesseractResult.confidence * 100).toFixed(1)}%\n` +
-                        `   • Google Vision: ${(ocrResult.googleVisionResult.confidence * 100).toFixed(1)}%`;
-      }
+      let engineInfo = `🤖 <b>Engine:</b> ${ocrResult.engine || 'google-vision'}`;
       
       // Truncate text if too long for Telegram
       let displayText = ocrResult.text;
@@ -495,11 +471,9 @@ async function processPhotoOCR(photoSizes: any[], chatId: number): Promise<void>
                      `📝 <b>Extracted Text:</b>\n<code>${displayText}</code>\n\n` +
                      `🎯 <b>Confidence:</b> ${(ocrResult.confidence * 100).toFixed(1)}%\n` +
                      engineInfo + `\n` +
-                     `🔧 <b>Preprocessing:</b> ${ocrResult.preprocessingMethod || 'standard'}\n` +
-                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms` +
-                     comparisonInfo + `\n\n` +
+                     `⏱️ <b>Processing Time:</b> ${ocrResult.processingTime}ms\n\n` +
                      `📅 <i>Ready for calendar integration! Send /calendar to connect your Google Calendar.</i>`;
-      
+
       await sendMessage(chatId, message);
     } else {
       await sendMessage(chatId, "❌ No text could be extracted from the image. Please try with a clearer photo.");
@@ -669,8 +643,7 @@ async function handleStatusCommand(chatId: number, telegramUserId: string): Prom
     
     // OCR Status
     statusMessage += `🔍 <b>OCR Engine:</b> ✅ Ready\n`;
-    statusMessage += `   • Tesseract.js: Active\n`;
-    statusMessage += `   • Google Vision: ${process.env.GOOGLE_VISION_ENABLED === 'true' ? 'Active' : 'Disabled'}\n\n`;
+    statusMessage += `   • Google Cloud Vision API: Active\n\n`;
     
     // Calendar Status
     statusMessage += `📅 <b>Calendar Integration:</b>\n`;
@@ -718,7 +691,7 @@ async function handleHelpCommand(chatId: number): Promise<void> {
     `1. Send /calendar to connect Google Calendar\n` +
     `2. Send a schedule photo\n` +
     `3. I'll create calendar events automatically!\n\n` +
-    `<i>Powered by Tesseract.js & Google Vision AI</i>`;
+    `<i>Powered by Google Cloud Vision API</i>`;
   
   await sendMessage(chatId, helpMessage);
 }

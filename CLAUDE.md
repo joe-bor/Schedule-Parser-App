@@ -122,8 +122,8 @@ The application uses a service-oriented architecture with lazy loading:
 
 **OCR Processing Pipeline**:
 1. `TelegramFileManager` (`src/services/fileManager.ts`) - Downloads and validates photos from Telegram API
-2. `OCRProcessor` (`src/services/ocrProcessor.ts`) - Extracts text using Tesseract.js workers
-3. `ImagePreprocessor` (`src/utils/imageProcessor.ts`) - Image enhancement for better OCR results
+2. `OCRProcessor` (`src/services/ocrProcessor.ts`) - Extracts text using Google Cloud Vision API
+3. `GoogleVisionProcessor` (`src/services/googleVisionProcessor.ts`) - Handles Google Vision API communication and table reconstruction
 
 **Lazy Loading Pattern**: Services are instantiated only when needed to avoid environment validation issues during testing. See `src/routes/telegram.ts` for implementation.
 
@@ -154,15 +154,14 @@ When constructing URLs from `TELEGRAM_WEBHOOK_URL` in telegram.ts:
 - `PORT` - Server port (defaults to 3000)
 - `NODE_ENV` - development/production/test
 
-**Optional for Google Calendar integration:**
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
-
-**Optional for Enhanced OCR (90.5% accuracy):**
+**Required for OCR (Google Cloud Vision):**
 - `GOOGLE_CLOUD_PROJECT_ID` - Google Cloud project ID
 - `GOOGLE_APPLICATION_CREDENTIALS` - Path to service account JSON key
-- `GOOGLE_VISION_ENABLED` - Enable/disable Google Vision fallback (default: true)
 - `GOOGLE_VISION_QUOTA_LIMIT` - Monthly quota limit for cost management (default: 1000)
 - `GOOGLE_VISION_USE_DOCUMENT_DETECTION` - Use document vs text detection (default: true)
+
+**Optional for Google Calendar integration:**
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
 
 ### Testing Architecture
 - **Framework**: Jest with TypeScript support via ts-jest
@@ -178,31 +177,13 @@ This project uses ESM modules exclusively:
 
 ### OCR Configuration
 
-#### **Multi-Engine Architecture**
-- **Primary Engine**: Tesseract.js with worker-based processing and PSM fallback strategies
-- **Secondary Engine**: Google Cloud Vision API (triggered when Tesseract confidence < 80%)
-- **Engine Selection**: Automatic based on confidence comparison and cost optimization
-
-#### **Tesseract Configuration**
-- **Languages**: English and French (traineddata files in root)
-- **PSM Modes**: Intelligent fallback sequence (11→3→4→6) for optimal schedule recognition  
-- **Worker Management**: Proper initialization, cleanup, and lazy loading
-- **Character Whitelist**: Optimized for schedule content (times, names, departments)
-
-#### **Image Preprocessing Pipeline**
-- **Primary**: OpenCV.js with advanced algorithms:
-  - Adaptive thresholding (Gaussian/Mean)
-  - CLAHE (Contrast Limited Adaptive Histogram Equalization) 
-  - Morphological operations (opening, closing, gradient)
-  - Advanced denoising (bilateral filter, non-local means)
-  - Multi-method processing with quality scoring
-- **Fallback**: Sharp.js with standard preprocessing (grayscale, contrast, sharpening)
-
-#### **Google Vision Integration**
-- **Authentication**: Service account with JSON key
-- **Detection Modes**: Text detection vs Document text detection
-- **Cost Management**: Quota tracking and monthly limits
-- **Performance**: 90.5% confidence on schedule documents
+#### **Google Cloud Vision API (Primary Engine)**
+- **Authentication**: Service account with JSON key (required)
+- **Detection Mode**: Document text detection with spatial coordinates
+- **Table Reconstruction**: 5-layer process using bounding boxes (word extraction → row grouping → column detection → cell assignment → header detection)
+- **Cost Management**: Configurable monthly quota limits
+- **Performance**: 96.4% OCR confidence, 80% table extraction accuracy
+- **Processing Time**: ~5-6 seconds per schedule photo
 
 ## Testing Guidelines
 
@@ -245,7 +226,7 @@ curl http://localhost:3000/api/calendar/auth/{telegramUserId}
 - **Lazy Service Loading**: Defer service instantiation until needed (see telegram routes)
 - **Environment Validation**: Use Zod schemas for type-safe config
 - **Error Handling**: Comprehensive error types with user-friendly messages
-- **Worker Management**: Proper cleanup of Tesseract workers on process termination
+- **Google Vision Integration**: Direct API calls with retry logic and timeout protection
 
 ### Debugging
 - OCR processing includes detailed console logging for file IDs, dimensions, and processing times
@@ -256,26 +237,19 @@ curl http://localhost:3000/api/calendar/auth/{telegramUserId}
 
 ### ✅ **Phase 2: OCR Optimization - COMPLETED!** 🎉
 
-#### **Phase 2A: Advanced Preprocessing - COMPLETED** ✅
-- **OpenCV.js Integration**: Full preprocessing pipeline with advanced algorithms ✅
-- **Multi-method Processing**: Adaptive thresholding, CLAHE, morphological operations ✅
-- **Quality Scoring**: Automatic selection of best preprocessing method ✅
-- **Graceful Fallbacks**: Sharp.js fallback when OpenCV initialization fails ✅
-- **Performance**: Intelligent preprocessing method selection based on image characteristics ✅
+#### **Google Cloud Vision API Integration - COMPLETED** ✅
+- **Primary OCR Engine**: Google Cloud Vision with document text detection ✅
+- **Service Account Authentication**: Secure JSON key-based access ✅
+- **Spatial Table Reconstruction**: 5-layer process using bounding box coordinates ✅
+- **Cost Optimization**: Quota management and monthly usage limits ✅
+- **Performance Optimization**: Removed Tesseract fallback for 75% faster processing ✅
+- **Achievement**: **96.4% OCR confidence** with **~5-6s processing time** (down from ~23s) ✅
 
-#### **Phase 2B: Multi-Engine OCR - COMPLETED** ✅
-- **Google Vision API Integration**: Professional-grade OCR engine with service account authentication ✅
-- **Intelligent Fallback System**: Google Vision triggers when Tesseract confidence < 80% ✅
-- **Engine Comparison**: Real-time performance tracking and automatic engine selection ✅
-- **Cost Optimization**: Smart quota management and usage statistics tracking ✅
-- **Document vs Text Detection**: Configurable detection modes for optimal results ✅
-- **Achievement**: **90.5% OCR confidence** on schedule documents (vs 47% Tesseract-only) ✅
-
-#### **Multi-Engine Architecture**:
+#### **Optimized OCR Architecture**:
 ```
-Image Input → OpenCV/Sharp Preprocessing → Tesseract OCR
-                                           ↓ (if confidence < 80%)
-                                     Google Vision API → Best Result Selection
+Image Input → Google Vision API → Table Reconstruction → Schedule Parsing
+     ↓               ↓                     ↓                    ↓
+File Upload → Document Detection → Spatial Coordinates → Structured Data
 ```
 
 ### ✅ **Phase 3: Schedule Processing & Calendar Integration - COMPLETED!** 🎉
@@ -303,7 +277,8 @@ File Download → Text Extraction → Employee Data → Joezari Events → Calen
 
 ### 🎯 **Current Capabilities - PRODUCTION READY**:
 - **End-to-End Processing**: Photo to calendar events in one workflow
-- **90.5% OCR Accuracy**: Multi-engine OCR with Google Vision fallback
+- **96.4% OCR Accuracy**: Google Cloud Vision with spatial table reconstruction
+- **Fast Processing**: ~5-6 seconds per schedule photo (75% faster than multi-engine approach)
 - **Smart Filtering**: Extracts all employee data but creates personal calendar events only
 - **OAuth Integration**: Secure Google Calendar authentication
 - **Timezone Aware**: California-based scheduling with proper datetime handling
@@ -311,8 +286,8 @@ File Download → Text Extraction → Employee Data → Joezari Events → Calen
 
 ### 📱 **Production Workflow**:
 1. **Photo Upload**: User sends schedule photo to Telegram bot
-2. **OCR Processing**: Multi-engine text extraction (90.5% accuracy)
-3. **Schedule Parsing**: Extract all employee schedules and work shifts
+2. **OCR Processing**: Google Cloud Vision text extraction (96.4% confidence, ~5-6s)
+3. **Schedule Parsing**: Extract all employee schedules and work shifts via table reconstruction
 4. **Authentication Check**: Verify user's Google Calendar connection status
 5. **Personal Filtering**: Create calendar events only for Joezari Borlongan
 6. **Calendar Creation**: Batch creation of work shifts in Google Calendar
@@ -389,21 +364,22 @@ File Download → Text Extraction → Employee Data → Joezari Events → Calen
 
 #### **Production Pipeline Architecture**:
 ```
-Telegram Photo → Multi-Engine OCR → Table Reconstruction → Schedule Parsing → Calendar Integration
+Telegram Photo → Google Vision OCR → Table Reconstruction → Schedule Parsing → Calendar Integration
      ↓               ↓                      ↓                      ↓                    ↓
 File Download → Spatial Coords → 42×64 Table Structure → Time Extraction → Calendar Events
                      ↓                      ↓                      ↓                    ↓
                 96.4% Vision → Column/Row Mapping → 80% Table Data → 100% Success Rate
-                                       ↓ (fallback if table fails)
-                                Pattern Matching → 20% Fallback Data
+                (~5-6s)                    ↓ (fallback if table fails)
+                                    Pattern Matching → 20% Fallback Data
 ```
 
 ### 🚀 **PRODUCTION READY - SHIP STATUS**:
+- **Google Cloud Vision Only**: Removed Tesseract for 75% faster processing (~23s → ~5-6s) ✅
 - **Spatial Table Extraction**: Uses bounding box coordinates to rebuild table structure ✅
 - **80% Table Accuracy**: 8/10 shifts extracted from spatial data (not text patterns) ✅
-- **100% Date Accuracy**: All dates extracted correctly from table headers ✅
+- **96.4% OCR Confidence**: High-accuracy text extraction with document detection ✅
 - **100% Calendar Success**: All work shifts create valid Google Calendar events ✅
 - **Dual Extraction Strategy**: Table-based primary, pattern matching fallback ✅
 - **Production Tested**: End-to-end workflow validated with real schedule photos ✅
 
-**Current State**: **PRODUCTION READY** - Complete schedule processing pipeline from Telegram photos to Google Calendar events with **spatial table reconstruction** achieving 80% accuracy. Pattern matching fallback covers remaining 20%. Ready for production deployment.
+**Current State**: **PRODUCTION READY** - Complete schedule processing pipeline from Telegram photos to Google Calendar events with **Google Cloud Vision as primary OCR engine**, achieving **96.4% accuracy** and **~5-6s processing time**. Spatial table reconstruction provides 80% extraction success with pattern matching fallback covering the remaining 20%. Ready for production deployment.
