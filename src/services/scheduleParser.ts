@@ -33,7 +33,7 @@ export class ScheduleParser {
     ocrMetadata: {
       confidence: number;
       processingTime: number;
-      engine: 'tesseract' | 'google-vision' | 'hybrid';
+      engine: 'google-vision';
     },
     tableStructure?: TableStructure
   ): Promise<ParsedSchedule> {

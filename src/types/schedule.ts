@@ -39,7 +39,7 @@ export interface ParsedSchedule {
   parseMetadata: {
     confidence: number;           // OCR confidence score
     processingTime: number;       // Total parsing time in ms
-    ocrEngine: 'tesseract' | 'google-vision' | 'hybrid';
+    ocrEngine: 'google-vision';
     warnings: string[];           // Parsing warnings
     errors: string[];             // Parsing errors
   };
