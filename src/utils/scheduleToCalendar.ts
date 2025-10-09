@@ -101,9 +101,9 @@ export const PERSONAL_CONVERSION_OPTIONS: ScheduleToCalendarOptions = {
   selectedDepartments: [],
   eventColorByDepartment: true,
   includeEmployeeInTitle: false, // Don't need your name in title since it's your calendar
-  includeDepartmentInTitle: true, // Show department in title instead
-  eventPrefix: 'Work - ',
-  location: '',
+  includeDepartmentInTitle: false, // Time range and location will be in title instead
+  eventPrefix: '', // No prefix needed - title shows time and location
+  location: 'Luckys',
   reminderMinutes: 15,
   privateEvents: false
 };
@@ -233,39 +233,13 @@ export class ScheduleToCalendarConverter {
     // Log the exact datetime being used for calendar creation
     console.log(`📅 Creating calendar event: ${employee.name} | ${dailySchedule.dayName} ${dailySchedule.date} | ${startDateTime} to ${endDateTime}`);
 
-    // Build event title
-    let title = '';
-    if (this.options.eventPrefix) {
-      title += this.options.eventPrefix;
-    }
-    
-    if (this.options.includeEmployeeInTitle) {
-      title += employee.name;
-    }
-    
-    if (this.options.includeDepartmentInTitle) {
-      if (title) title += ' - ';
-      title += departmentName;
-    }
-    
-    if (!title) {
-      title = `${employee.name} - Work Shift`;
-    }
+    // Build event title: "Work @ Luckys"
+    const location = this.options.location || 'Luckys';
+    const title = `Work @ ${location}`;
 
-    // Build description with full work day details
+    // Build clean description with just name and department
     let description = `Employee: ${employee.name}\n`;
-    description += `Department: ${departmentName}\n`;
-    description += `Full Work Day: ${earliestStart} - ${latestEnd}\n`;
-    
-    if (allSegments.length > 1) {
-      description += `Segments: ${allSegments}\n`;
-    }
-    
-    description += `Weekly Total: ${employee.totalHours} hours`;
-    
-    if (dailySchedule.notes) {
-      description += `\nNotes: ${dailySchedule.notes}`;
-    }
+    description += `Department: ${departmentName}`;
 
     // Determine color based on department
     let colorId: string | undefined;
@@ -326,10 +300,10 @@ export class ScheduleToCalendarConverter {
   private compareTime(time1: string, time2: string): number {
     const [hours1, minutes1] = time1.split(':').map(Number);
     const [hours2, minutes2] = time2.split(':').map(Number);
-    
+
     const totalMinutes1 = hours1 * 60 + minutes1;
     const totalMinutes2 = hours2 * 60 + minutes2;
-    
+
     return totalMinutes1 - totalMinutes2;
   }
 
