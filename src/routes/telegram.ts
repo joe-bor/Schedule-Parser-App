@@ -323,77 +323,35 @@ async function processCalendarIntegration(chatId: number, telegramUserId: string
 async function sendScheduleResults(chatId: number, scheduleResult: any): Promise<void> {
   const { ocr, schedule, validation } = scheduleResult;
 
-  // Create header with OCR info
-  let message = `✅ <b>Schedule Parsing Complete!</b> 📅\n\n`;
+  // Create clean header
+  let message = `✅ <b>Schedule Extracted!</b> 📅\n\n`;
 
-  // Add OCR metadata
-  message += `🎯 <b>OCR Confidence:</b> ${(ocr.confidence * 100).toFixed(1)}%\n`;
-  message += `🤖 <b>Engine:</b> ${ocr.engine || 'tesseract'}`;
-  if (ocr.fallbackUsed) {
-    message += ` (fallback activated)`;
-  }
-  message += `\n⏱️ <b>Processing Time:</b> ${ocr.processingTime + schedule.parseMetadata.processingTime}ms\n\n`;
+  // Add week date range in cleaner format
+  message += `📅 <b>Week of ${formatWeekRange(schedule.weekInfo.weekStart, schedule.weekInfo.weekEnd)}</b>\n\n`;
 
-  // Add extracted dates breakdown
-  message += `📅 <b>Extracted Week Dates:</b>\n`;
-  message += `   ${formatDateLong(schedule.weekInfo.weekStart)} - ${formatDateLong(schedule.weekInfo.weekEnd)}\n`;
-
-  // Show all 7 extracted dates
-  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const extractedDatesPreview = schedule.weekInfo.dates
-    .slice(0, 7)
-    .map((date: string, index: number) => `${dayNames[index]} ${formatDateShort(date)}`)
-    .join(', ');
-  message += `   ${extractedDatesPreview}\n\n`;
-
-  // Add schedule summary
-  message += `📊 <b>Schedule Summary:</b>\n`;
-  message += `👥 Total Employees: ${schedule.totalEmployees}\n`;
-  message += `🏢 Departments: ${Object.keys(schedule.departments).length}\n\n`;
-  
-  // Add validation status
-  if (validation.isValid) {
-    message += `✅ <b>Validation:</b> PASSED\n`;
-  } else {
-    message += `⚠️ <b>Validation:</b> ${validation.errors.length} errors, ${validation.warnings.length} warnings\n`;
-  }
-  
-  if (validation.warnings.length > 0) {
-    message += `\n📋 <b>Warnings:</b>\n`;
-    validation.warnings.slice(0, 3).forEach((warning: string) => {
-      message += `• ${warning}\n`;
-    });
-    if (validation.warnings.length > 3) {
-      message += `... and ${validation.warnings.length - 3} more\n`;
-    }
-  }
-  
-  message += `\n`;
-  
-  // Add department breakdown with specific work schedules
+  // Show only user's schedule (Joezari Borlongan)
   for (const [deptName, employees] of Object.entries(schedule.departments)) {
-    message += `🏢 <b>${deptName} Department</b> (${(employees as Employee[]).length} employees)\n`;
+    const userEmployee = (employees as Employee[]).find(emp =>
+      emp.name.toUpperCase().includes('BORLONGAN') && emp.name.toUpperCase().includes('JOEZARI')
+    );
 
-    for (const employee of (employees as Employee[]).slice(0, 2)) { // Show first 2 with details
-      const workDays = employee.weeklySchedule.filter((day: any) => day.timeSlot);
-      message += `   👤 <b>${employee.name}</b>: ${workDays.length} work days\n`;
+    if (userEmployee) {
+      const workDays = userEmployee.weeklySchedule.filter((day: any) => day.timeSlot);
+      message += `🗓️ <b>Your Work Schedule:</b>\n`;
 
-      // Show each work day with date and time
-      for (const day of workDays.slice(0, 3)) { // Show first 3 work days
+      // Show all work days with date and time in 12-hour format
+      for (const day of workDays) {
         const timeSlot = day.timeSlot;
         if (timeSlot) {
-          message += `      • ${day.dayName.substring(0, 3)} ${formatDateShort(day.date)}: ${timeSlot.start}-${timeSlot.end}\n`;
+          const startTime = format24HourTo12Hour(timeSlot.start);
+          const endTime = format24HourTo12Hour(timeSlot.end);
+          message += `   🕐 ${day.dayName.substring(0, 3)} ${formatDateShort(day.date)}: ${startTime} - ${endTime}\n`;
         }
       }
-      if (workDays.length > 3) {
-        message += `      ... and ${workDays.length - 3} more shifts\n`;
-      }
-    }
 
-    if ((employees as Employee[]).length > 2) {
-      message += `   ... and ${(employees as Employee[]).length - 2} more employees\n`;
+      message += `\n📊 <b>${workDays.length} work days</b> this week\n\n`;
+      break; // Only show user's schedule once
     }
-    message += `\n`;
   }
   
   // Check message length and truncate if needed
@@ -447,6 +405,45 @@ function formatDateShort(dateStr: string): string {
     return `${month}/${day}`;
   } catch {
     return dateStr;
+  }
+}
+
+/**
+ * Format week range (YYYY-MM-DD, YYYY-MM-DD -> Aug 04 - Aug 10, 2025)
+ */
+function formatWeekRange(startDate: string, endDate: string): string {
+  try {
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
+
+    const startMonth = start.toLocaleDateString('en-US', { month: 'short' });
+    const startDay = start.toLocaleDateString('en-US', { day: '2-digit' });
+    const endMonth = end.toLocaleDateString('en-US', { month: 'short' });
+    const endDay = end.toLocaleDateString('en-US', { day: '2-digit' });
+    const year = end.getFullYear();
+
+    // If same month, show: Aug 04 - 10, 2025
+    if (startMonth === endMonth) {
+      return `${startMonth} ${startDay} - ${endDay}, ${year}`;
+    }
+    // Different months: Aug 04 - Sep 10, 2025
+    return `${startMonth} ${startDay} - ${endMonth} ${endDay}, ${year}`;
+  } catch {
+    return `${startDate} - ${endDate}`;
+  }
+}
+
+/**
+ * Format time from 24-hour to 12-hour (06:30 -> 6:30am)
+ */
+function format24HourTo12Hour(time24: string): string {
+  try {
+    const [hours, minutes] = time24.split(':').map(Number);
+    const period = hours >= 12 ? 'pm' : 'am';
+    const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+    return `${displayHours}:${minutes.toString().padStart(2, '0')}${period}`;
+  } catch {
+    return time24;
   }
 }
 

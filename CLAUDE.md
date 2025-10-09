@@ -330,6 +330,38 @@ File Download → Text Extraction → Employee Data → Joezari Events → Calen
 - **Department Colors**: Visual organization by work department (Meat=Blue, Produce=Green, etc.)
 - **Event Details**: Includes work hours, department, location, and 15-minute reminders
 
+### 💬 **User Experience**:
+
+**Telegram Message Format** (Clean & Focused):
+```
+✅ Schedule Extracted! 📅
+
+📅 Week of Aug 04 - 10, 2025
+
+🗓️ Your Work Schedule:
+   🕐 Tue 08/05: 6:30am - 3:30pm
+   🕐 Wed 08/06: 5:30am - 2:30pm
+   🕐 Thu 08/07: 6:30am - 3:30pm
+   🕐 Sat 08/09: 6:30am - 3:30pm
+   🕐 Sun 08/10: 6:30am - 3:30pm
+
+📊 5 work days this week
+
+🔄 Processing calendar integration...
+```
+
+**Google Calendar Event Format**:
+- **Title**: "Work @ Luckys"
+- **Time**: Displayed in calendar (e.g., 6:30am - 3:30pm)
+- **Description**:
+  ```
+  Employee: BORLONGAN, JOEZARI
+  Department: Meat
+  ```
+- **Location**: Luckys
+- **Color**: Blue (Meat department)
+- **Reminder**: 15 minutes before shift
+
 ### 🎉 **Phase 4: Production-Ready OCR Parsing - COMPLETED!** 🚀
 
 #### **Phase 4A: Real OCR Data Extraction - COMPLETED** ✅
