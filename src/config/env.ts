@@ -31,19 +31,9 @@ export const envSchema = z.object({
     .default("true")
     .transform((val) => val === "true"),
 
-  // OCR Configuration
-  OPENCV_ENABLED: z
-    .string()
-    .default("true")
-    .transform((val) => val === "true"),
-
-  // Google Cloud Vision (optional for enhanced OCR)
-  GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
-  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(), // Path to service account key file
-  GOOGLE_VISION_ENABLED: z
-    .string()
-    .default("true")
-    .transform((val) => val === "true"),
+  // Google Cloud Vision (required for OCR)
+  GOOGLE_CLOUD_PROJECT_ID: z.string().min(1, "Google Cloud Project ID is required for OCR"),
+  GOOGLE_APPLICATION_CREDENTIALS: z.string().min(1, "Google Application Credentials path is required for OCR"),
   GOOGLE_VISION_QUOTA_LIMIT: z
     .string()
     .default("1000")
